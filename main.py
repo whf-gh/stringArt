@@ -26,7 +26,11 @@ parameters = askForParameters()
 
 #isColored = (input("Is you image in black and white ? (y/n)") != 'y')
 n = parameters.get('Number of Pins', 500)
+if n == 0:
+    n = 500
 r = parameters.get('Radius', 50) / 100
+if r == 0:
+    r = 0.5
 pg.init()
 clock = pg.time.Clock()
 scrsize = np.array(pg.display.get_desktop_sizes()[0], dtype=float)*0.9
@@ -50,6 +54,8 @@ datapos = np.array((scrsize[0]*0.6, scrsize[1]*0.05))
 datastep = np.array((0, fontsize*1.1))
 i = 0
 imax = parameters.get('Max Iterations', 1500)
+if imax == 0:
+    imax = 1500
 running = True
 nail_indices = []  # Initialize nail_indices outside the loop
 nail_coordinates = []  # Initialize nail_coordinates outside the loop
