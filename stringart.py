@@ -12,57 +12,103 @@ from net_server import TCPServer as Server
 class State(Enum):
     CONFIGURING = 1
     DRAWING = 2
-    SERVING = 3
-    QUITING = 4
+    PAUSING = 3
+    SERVING = 4
+    QUITING = 5
 
-def create_widgets(font, square_size):
-    margin = square_size * 0.05
-    position = [margin, margin]
-    params = {'Number of Pins': 200, 'Number of Lines': 500, 'Radius in Pixels': 500, 'Radius in milimeter': 500, 'Shortest Line in Pixels': 500, 'Max Pin Usage': 15}
-    buttons = {'Select Image': select_image, 'process Image': process_image, 'Submit': submit_parameters}
-    checkboxes = {'denoise': False, 'Canny edge detection': False, 'Adaptive thresholding': False, 'Global Thresholding': False}
+def init_widgets():
     widgets = {}
+    pg.init()
+    scrsize = np.array(pg.display.get_desktop_sizes()[0], dtype=int)*0.9
+    square_size = int(scrsize[1])
+    widgets['window'] = pg.display.set_mode(scrsize)
+    pg.display.set_caption("StringArtProcess")
     widgets['image_square_size'] = int(square_size)
-    widgets['parameters'] = params
+    widgets['string_drawing_surface'] = pg.surface.Surface((square_size, square_size), pg.SRCALPHA)
+    widgets['information_surface'] = pg.surface.Surface((scrsize[0] - square_size, square_size), pg.SRCALPHA)
+    fontsize = int(scrsize[1]*0.03)
+    widgets['font'] = pg.font.SysFont("Arial", fontsize)
+    widgets['color_white'] = (255, 255, 255)
+    widgets['color_black'] = (0, 0, 0)
+    widgets['parameters'] = {}
     widgets['labels'] = []
     widgets['input_boxes'] = []
     widgets['defaults'] = {}
-    widgets['buttons'] = buttons
+    widgets['buttons'] = {}
     widgets['button_boxes'] = {}
     widgets['button_label'] = {}
-    widgets['checkboxes'] = checkboxes
+    widgets['checkboxes'] = {}
     widgets['checkbox_boxes'] = {}
     widgets['checkbox_labels'] = {}
-    labal_position = position
-    labal_length = font.size(max(params.keys(), key=len))[0]
-    fontsize = font.size('1000000')
-    for param, default in params.items():
-        label = font.render(param, True, (255, 255, 255))
-        widgets['labels'].append((label, copy.copy(labal_position)))
-        input_box = pg.Rect(labal_position[0] + labal_length + fontsize[1], labal_position[1], fontsize[0], fontsize[1] * 1.5)
-        widgets['input_boxes'].append(input_box)
-        widgets['defaults'][param] = default  # Set default value
-        labal_position[1] += fontsize[1] * 2
-    for checkbox_label in checkboxes.keys():
-        checkbox_box = pg.Rect(labal_position[0], labal_position[1], fontsize[1], fontsize[1])
-        widgets['checkbox_boxes'][checkbox_label] = checkbox_box
-        widgets['checkbox_labels'][checkbox_label] = font.render(checkbox_label, True, (255, 255, 255))
-        labal_position[1] += fontsize[1] * 2
-    for button_label in buttons.keys():
-        widgets['button_boxes'][button_label] = pg.Rect(labal_position[0], labal_position[1], font.size(button_label)[0] * 1.2, font.size(button_label)[1] * 1.5)
-        widgets['button_label'][button_label] = font.render(button_label, True, (255, 255, 255))
-        labal_position[1] += fontsize[1] * 2
-    widgets['active_box'] = widgets['input_boxes'][0]  # Set the cursor in the first input box
+    widgets['active_box'] = None
     widgets['cursor_visible'] = True
-    widgets['start'] = False
+    widgets['state'] = State.CONFIGURING
     widgets['image'] = None
+    widgets['decay'] = 1.5
     widgets['init_array'] = None
     widgets['processed_array'] = None
-    widgets['pins'] = calculate_pins(widgets['image_square_size'], params['Radius in Pixels'], params['Number of Pins'])
+    widgets['current_index'] = 0
+    widgets['last_index'] = None
+    widgets['pins'] = []
     widgets['steps'] = []
     widgets['lines'] = []
     widgets['total_length_in_pixels'] = 0
+    widgets['server'] = None
     return widgets
+
+def create_config_widgets(widgets):
+    params = {'Number of Pins': 200, 'Number of Lines': 500, 'Radius in Pixels': 500, 'Radius in milimeter': 500, 'Shortest Line in Pixels': 500, 'Max Pin Usage': 15}
+    buttons = {'Select Image': select_image, 'process Image': process_image, 'Submit': submit_parameters}
+    checkboxes = {'denoise': False, 'Canny edge detection': False, 'Adaptive thresholding': False, 'Global Thresholding': False}
+    widgets['parameters'] = params
+    widgets['buttons'] = buttons
+    widgets['checkboxes'] = checkboxes
+    margin = widgets['image_square_size'] * 0.05
+    position = [margin, margin]
+    labal_position = position
+    font = widgets['font']
+    labal_length = font.size(max(params.keys(), key=len))[0]
+    font_size = font.size('1000000')
+    for param, default in params.items():
+        label = font.render(param, True, (255, 255, 255))
+        widgets['labels'].append((label, copy.copy(labal_position)))
+        input_box = pg.Rect(labal_position[0] + labal_length + font_size[1], labal_position[1], font_size[0], font_size[1] * 1.5)
+        widgets['input_boxes'].append(input_box)
+        widgets['defaults'][param] = default  # Set default value
+        labal_position[1] += font_size[1] * 2
+    for checkbox_label in checkboxes.keys():
+        checkbox_box = pg.Rect(labal_position[0], labal_position[1], font_size[1], font_size[1])
+        widgets['checkbox_boxes'][checkbox_label] = checkbox_box
+        widgets['checkbox_labels'][checkbox_label] = font.render(checkbox_label, True, (255, 255, 255))
+        labal_position[1] += font_size[1] * 2
+    for button_label in buttons.keys():
+        widgets['button_boxes'][button_label] = pg.Rect(labal_position[0], labal_position[1], font.size(button_label)[0] * 1.2, font.size(button_label)[1] * 1.5)
+        widgets['button_label'][button_label] = font.render(button_label, True, (255, 255, 255))
+        labal_position[1] += font_size[1] * 2
+    widgets['active_box'] = widgets['input_boxes'][0]  # Set the cursor in the first input box
+    widgets['state'] = State.CONFIGURING
+    widgets['pins'] = calculate_pins(widgets['image_square_size'], params['Radius in Pixels'], params['Number of Pins'])
+
+def create_information_widgets(widgets):
+    buttons = {'Stop': stop_drawing, 'Pause': pause_drawing, 'Resume': resume_drawing}
+    widgets['input_boxes'] = []
+    widgets['checkboxes'] = {}
+    widgets['buttons'] = buttons
+    widgets['button_boxes'] = {}
+    widgets['button_label'] = {}
+
+def stop_drawing(widgets):
+    widgets['state'] = State.SERVING
+    widgets['server'] = Server(widgets['steps'], '0.0.0.0', 65432)
+    # TODO: update information surface for serving
+
+def pause_drawing(widgets):
+    widgets['state'] = State.PAUSING
+    widgets['buttons']['Resume'] = resume_drawing
+
+def resume_drawing(widgets):
+    widgets['state'] = State.DRAWING
+    widgets['buttons'].pop('Resume', None)
 
 def move_to_next_box(widgets):
     if widgets['active_box'] in widgets['input_boxes']:
@@ -81,13 +127,22 @@ def get_param_name(widgets):
 
 def submit_parameters(widgets):
     # Convert parameters to integers
+    if widgets['image'] is None:
+        return
     parameters = widgets['parameters']
     for key in parameters:
         if parameters[key] == "":
             parameters[key] = "0"  # Default to 0 if empty
         parameters[key] = int(parameters[key])
-    print("Submitted Parameters:", parameters)
-    widgets['start'] = True
+    if widgets['image'].mode != 'L':
+        widgets['image'] = widgets['image'].convert('L')
+    if widgets['init_array'] is None:
+        widgets['init_array'] = np.array(widgets['image'])
+    widgets['state'] = State.DRAWING
+    create_information_widgets(widgets)
+    init_drawing(widgets)
+    widgets['steps'].append(widgets['pins'][widgets['current_index']])
+    widgets['buttons'].pop('Resume', None)
 
 def select_image(widgets):
     # Use tkinter to open a file dialog
@@ -103,7 +158,7 @@ def select_image(widgets):
         if img_width < screen_size or img_height < screen_size:
             scale_factor = max(screen_size / img_width, screen_size / img_height)
             new_size = (int(img_width * scale_factor), int(img_height * scale_factor))
-            image = image.resize(new_size, Image.ANTIALIAS)
+            image = image.resize(new_size, Image.LANCZOS)
             img_width, img_height = new_size
 
         if img_width > screen_size or img_height > screen_size:
@@ -205,7 +260,8 @@ def calculate_pins(squareSize, radius, num_pins):
         angle = 2 * math.pi * i / num_pins
         x = squareSize//2 + radius * math.cos(angle)
         y = squareSize//2 + radius * math.sin(angle)
-        pins.append((int(x), int(y)))
+        #pins.append((int(x), int(y)))
+        pins.append((x, y))
     return pins
 
 def calculate_line_darkness(img_array, x1, y1, x2, y2):
@@ -295,7 +351,7 @@ def find_best_next_pin(widgets, current_index, last_index):
             break
 
     for pin in target_pins:
-        darkness, line = calculate_line_darkness(widgets['processed_array'], current_pin[0], current_pin[1], pin[0], pin[1])
+        darkness, line = calculate_line_darkness(widgets['init_array'], int(current_pin[0]), int(current_pin[1]), int(pin[0]), int(pin[1]))
         if darkness < best_darkness and len(line) > widgets['parameters']['Shortest Line in Pixels'] and steps.count(pin) < widgets['parameters']['Max Pin Usage']:
             best_darkness = darkness
             best_line = line
@@ -306,16 +362,25 @@ def find_best_next_pin(widgets, current_index, last_index):
 def update_image_array(widgets, line):
     for x, y in line:
         if widgets['init_array'][y, x] != 255:
-            if widgets['processed_array'][y, x] == 0 and widgets['init_array'][y, x] < 200:
-                widgets['init_array'][y, x] = widgets['init_array'][y, x] + (255 - widgets['init_array'][y, x]) // 2
+            if widgets['processed_array'] is not None:
+                if widgets['processed_array'][y, x] == 0 and widgets['init_array'][y, x] < 200:
+                    widgets['init_array'][y, x] = widgets['init_array'][y, x] + (255 - widgets['init_array'][y, x]) // 2
+                else:
+                    widgets['init_array'][y, x] = 255
             else:
-                widgets['init_array'][y, x] = 255
+                if widgets['init_array'][y, x] < 200:
+                    #widgets['init_array'][y, x] = min(int(widgets['init_array'][y, x] * widgets['decay']), 255)
+                    widgets['init_array'][y, x] = min(int(widgets['init_array'][y, x] + 50), 255)
+                else:
+                    widgets['init_array'][y, x] = 255
  
 def draw_line(screen, line, color=(0, 0, 0)):
     for x, y in line:
         screen.set_at((x, y), color)
 
-def draw_config_widgets(surface, widgets, font):
+def draw_config_widgets(widgets):
+    surface = widgets['information_surface']
+    font = widgets['font']
     parameters = widgets['parameters']
     # Clear the surface
     surface.fill((30, 30, 30))
@@ -352,7 +417,8 @@ def draw_config_widgets(surface, widgets, font):
         surface.blit(widgets['button_label'][button_label], (widgets['button_boxes'][button_label].x + 5, widgets['button_boxes'][button_label].y + 5))
         pg.draw.rect(surface, (255, 255, 255), widgets['button_boxes'][button_label], 2)
 
-def draw_preview_image(surface, widgets):
+def draw_preview_image(widgets):
+    surface = widgets['string_drawing_surface']
     image = widgets['image']
     parameters = widgets['parameters']
     # Draw the selected image if available
@@ -371,13 +437,15 @@ def draw_preview_image(surface, widgets):
     for pin in widgets['pins']:
         pg.draw.circle(surface, (100, 100, 100), pin, 2)
 
-def init_drawing(surface, widgets, font):
+def init_drawing(widgets):
+    surface = widgets['string_drawing_surface']
     parameters = widgets['parameters']
     radius = parameters['Radius in Pixels']
     square_size = widgets['image_square_size']
     pins = widgets['pins']
     center = (square_size // 2, square_size // 2)
 
+    surface.fill(widgets['color_white'])
     # Draw circle outline
     pg.draw.circle(surface, (200, 200, 200), center, radius, 1)
     
@@ -387,18 +455,23 @@ def init_drawing(surface, widgets, font):
 
     pg.display.flip()
         
-def draw_string(surface, widgets, string_color, current_index, last_index):
-    next_pin, line = find_best_next_pin(widgets, current_index, last_index)
+def draw_string(widgets):
+    surface = widgets['string_drawing_surface']
+    string_color = widgets['color_black']
+    next_pin, line = find_best_next_pin(widgets, widgets['current_index'], widgets['last_index'])
     if next_pin is not None:
-        last_index = current_index
-        current_index = widgets['pins'].index(next_pin)
+        widgets['last_index'] = widgets['current_index']
+        widgets['current_index'] = widgets['pins'].index(next_pin)
         update_image_array(widgets, line)
         widgets['total_length_in_pixels'] += len(line)
         widgets['steps'].append(next_pin)
         draw_line(surface, line, string_color)
     return next_pin
  
-def draw_information(surface, widgets, font, color):
+def draw_information(widgets):
+    surface = widgets['information_surface']
+    font = widgets['font']
+    color = widgets['color_white']
     margin = widgets['image_square_size'] * 0.05
     position = [margin, margin]
     fontsize = font.size('1000000')
@@ -408,145 +481,128 @@ def draw_information(surface, widgets, font, color):
     position[1] += fontsize[1] * 2
     surface.blit(font.render("Nails = " + str(widgets['parameters']['Number of Pins']), True, color), position)
     position[1] += fontsize[1] * 2
-    surface.blit(font.render("Number of strings = " + str(len(widgets['steps']) - 1), True, color), position)
+    surface.blit(font.render("Number of Lines = " + str(len(widgets['steps']) - 1), True, color), position)
     position[1] += fontsize[1] * 2
     surface.blit(font.render("Total length = "+str(widgets['total_length_in_pixels'] / widgets['parameters']['Radius in Pixels'] * widgets['parameters']['Radius in milimeter']/1000)+" meters", True, color), position)
-    if widgets['init_array'] is not None:
-        image = Image.fromarray(widgets['init_array'])
-        img_width, img_height = image.size
-        new_size = (int(img_width // 5), int(img_height // 5))
-        image = image.resize(new_size, Image.LANCZOS)
-        image_surface = pg.image.fromstring(image.convert('RGB').tobytes(), image.size, 'RGB')
-        surface.blit(image_surface, (surface.get_width() - new_size[0] - new_size[0], surface.get_height() - new_size[1]))
+    position[1] += fontsize[1] * 2
+    for button_label in widgets['buttons'].keys():
+        widgets['button_boxes'][button_label] = pg.Rect(position[0], position[1], font.size(button_label)[0] * 1.2, font.size(button_label)[1] * 1.5)
+        widgets['button_label'][button_label] = font.render(button_label, True, color)
+        font_size = font.size(button_label)
+        surface.blit(widgets['button_label'][button_label], (widgets['button_boxes'][button_label].x + 5, widgets['button_boxes'][button_label].y + 5))
+        pg.draw.rect(surface, color, widgets['button_boxes'][button_label], 2)
+        position[1] += font_size[1] * 2
+    new_size = (int(widgets['image_square_size'] // 5), int(widgets['image_square_size'] // 5))
+    image_position = [surface.get_width() - new_size[0], surface.get_height() - new_size[1]]
     if widgets['processed_array'] is not None:
         image = Image.fromarray(widgets['processed_array'])
-        img_width, img_height = image.size
-        new_size = (int(img_width // 5), int(img_height // 5))
         image = image.resize(new_size, Image.LANCZOS)
         image_surface = pg.image.fromstring(image.convert('RGB').tobytes(), image.size, 'RGB')
-        surface.blit(image_surface, (surface.get_width() - new_size[0], surface.get_height() - new_size[1]))
+        surface.blit(image_surface, image_position)
+        image_position[0] -= new_size[0]
+    if widgets['init_array'] is not None:
+        image = Image.fromarray(widgets['init_array'])
+        image = image.resize(new_size, Image.LANCZOS)
+        image_surface = pg.image.fromstring(image.convert('RGB').tobytes(), image.size, 'RGB')
+        surface.blit(image_surface, image_position)
 
+def draw_serving(widgets):
+    surface = widgets['information_surface']
+    font = widgets['font']
+    color = widgets['color_white']
+    margin = widgets['image_square_size'] * 0.05
+    position = [margin, margin]
+    fontsize = font.size('1000000')
+    server = widgets['server']
 
-def handle_config_event(widgets, event):
-    if widgets['start'] is False:
-        square_size = widgets['image_square_size']
-        if event.type == pg.MOUSEBUTTONDOWN:
-            for button_label in widgets['buttons'].keys():
-                if widgets['button_boxes'][button_label].collidepoint((event.pos[0] - square_size, event.pos[1])):
-                    widgets['buttons'][button_label](widgets)
-            for box in widgets['input_boxes']:
-                if box.collidepoint((event.pos[0] - square_size, event.pos[1])):
-                    widgets['active_box'] = box
-                    break
-            for checkbox_label in widgets['checkboxes'].keys():
-                if widgets['checkbox_boxes'][checkbox_label].collidepoint((event.pos[0] - square_size, event.pos[1])):
-                    widgets['checkboxes'][checkbox_label] = not widgets['checkboxes'][checkbox_label]
-                    break
-        elif event.type == pg.KEYDOWN:
-            if widgets.get('active_box'):
-                param_name = get_param_name(widgets)
-                if event.key == pg.K_RETURN:
-                    widgets['active_box'] = None
-                elif event.key == pg.K_BACKSPACE:
-                    current_value = str(widgets['parameters'][param_name])
-                    widgets['parameters'][param_name] = int(current_value[:-1]) if current_value[:-1] else 0
-                elif event.key == pg.K_TAB:
-                    move_to_next_box(widgets)
-                elif event.unicode.isdigit():
-                    current_value = str(widgets['parameters'][param_name])
-                    widgets['parameters'][param_name] = int(current_value + event.unicode)
-                    if param_name == 'Number of Pins':
-                        widgets['pins'] = calculate_pins(widgets['image_square_size'], widgets['parameters']['Radius in Pixels'], widgets['parameters']['Number of Pins'])
+    # Clear the surface
+    surface.fill((30, 30, 30))
+    if server is None:
+        surface.blit(font.render("Server is not running", True, color), position)
+    else:
+        surface.blit(font.render(server.get_state(), True, color), position)
+        position[1] += fontsize[1] * 2
+        surface.blit(font.render("Total Number of Lines = " + str(len(widgets['steps']) - 1), True, color), position)
+        position[1] += fontsize[1] * 2
+        surface.blit(font.render("Coordinates left to be sent = "+str(server.get_data_length()), True, color), position)
+        position[1] += fontsize[1] * 2
+ 
+def handle_event(widgets, event):
+    square_size = widgets['image_square_size']
+    if event.type == pg.MOUSEBUTTONDOWN:
+        # Iterate over a copy of the keys to avoid modifying the dictionary during iteration
+        for button_label in list(widgets['buttons'].keys()):
+            if widgets['button_boxes'][button_label].collidepoint((event.pos[0] - square_size, event.pos[1])):
+                widgets['buttons'][button_label](widgets)
+        for box in widgets['input_boxes']:
+            if box.collidepoint((event.pos[0] - square_size, event.pos[1])):
+                widgets['active_box'] = box
+                break
+        for checkbox_label in list(widgets['checkboxes'].keys()):
+            if widgets['checkbox_boxes'][checkbox_label].collidepoint((event.pos[0] - square_size, event.pos[1])):
+                widgets['checkboxes'][checkbox_label] = not widgets['checkboxes'][checkbox_label]
+                break
+    elif event.type == pg.KEYDOWN:
+        if widgets.get('active_box'):
+            param_name = get_param_name(widgets)
+            if event.key == pg.K_RETURN:
+                widgets['active_box'] = None
+            elif event.key == pg.K_BACKSPACE:
+                current_value = str(widgets['parameters'][param_name])
+                widgets['parameters'][param_name] = int(current_value[:-1]) if current_value[:-1] else 0
+            elif event.key == pg.K_TAB:
+                move_to_next_box(widgets)
+            elif event.unicode.isdigit():
+                current_value = str(widgets['parameters'][param_name])
+                widgets['parameters'][param_name] = int(current_value + event.unicode)
+                if param_name == 'Number of Pins':
+                    widgets['pins'] = calculate_pins(widgets['image_square_size'], widgets['parameters']['Radius in Pixels'], widgets['parameters']['Number of Pins'])
 
 def main():
     pg.init()
-    scrsize = np.array(pg.display.get_desktop_sizes()[0], dtype=int)*0.9
-    screen = pg.display.set_mode(scrsize)
-    screen.fill((255, 0, 0))
-    small_surface = pg.surface.Surface(scrsize/5)
-    small_surface.fill((0, 0, 0))
-    bg_color = (255, 255, 255)
-    string_color=(0, 0, 0)
-    squareSize = int(scrsize[1])
-    image_prview_surface = pg.surface.Surface((squareSize, squareSize), pg.SRCALPHA)
-    image_prview_surface.fill(bg_color)
-    widgets_surface = pg.surface.Surface((scrsize[0] - squareSize, squareSize), pg.SRCALPHA)
-    widgets_surface.fill(string_color)
-    string_drawing_surface = pg.surface.Surface((squareSize, squareSize), pg.SRCALPHA)
-    string_drawing_surface.fill(bg_color)
-    information_surface = pg.surface.Surface((scrsize[0] - squareSize, squareSize), pg.SRCALPHA)
-    information_surface.fill(string_color)
-    pg.display.set_icon(small_surface)
-    pg.display.set_caption("StringArtProcess")
+    widgets = init_widgets()
+    screen = widgets['window']
+    square_size = widgets['image_square_size']
+    create_config_widgets(widgets)
 
-    fontsize = int(scrsize[1]*0.03)
-    font = pg.font.SysFont("Arial", fontsize)
-    widgets = create_widgets(font, squareSize)
-
-    configuring = True
-    drawing = False
-    while configuring:
+    while widgets['state'] != State.QUITING:
         for event in pg.event.get():
             if event.type == pg.QUIT:
-                configuring = False
-            handle_config_event(widgets, event)
-        if widgets['start'] is False:
-            draw_config_widgets(widgets_surface, widgets, font)
-            screen.blit(widgets_surface, (squareSize, 0))
-            draw_preview_image(image_prview_surface, widgets)  
-            screen.blit(image_prview_surface, (0, 0))
-            pg.display.flip()
-        else:
-            configuring = False
-            drawing = True
-
-    init_drawing(string_drawing_surface, widgets, font)
-    current_index = 0
-    last_index = None
-    max_lines = widgets['parameters']['Number of Lines']
-    widgets['steps'].append(widgets['pins'][current_index])
-    while drawing:
-        for _ in range(max_lines):
-            for event in pg.event.get():
-                if event.type == pg.QUIT:
-                    drawing = False
-                    break
-            next_pin = draw_string(string_drawing_surface, widgets, string_color, current_index, last_index)
-            screen.blit(string_drawing_surface, (0, 0))
-            if next_pin is None or not drawing:
-                break
-            last_index = current_index
-            current_index = widgets['pins'].index(next_pin)
-            draw_information(information_surface, widgets, font, bg_color)
-            screen.blit(information_surface, (squareSize, 0))
-            pg.display.flip()
-
-        if drawing:
-            button_continue = pg.Rect(scrsize[0]*0.4, scrsize[1]*0.8, 200, 50)
-            button_exit = pg.Rect(scrsize[0]*0.6, scrsize[1]*0.8, 200, 50)
-
-            pg.draw.rect(screen, (0, 255, 0), button_continue)
-            pg.draw.rect(screen, (255, 0, 0), button_exit)
-
-            screen.blit(font.render("Continue", True, (0, 0, 0)), (scrsize[0]*0.4 + 50, scrsize[1]*0.8 + 10))
-            screen.blit(font.render("Exit", True, (0, 0, 0)), (scrsize[0]*0.6 + 70, scrsize[1]*0.8 + 10))
-            pg.display.flip()
-            waiting_for_input = True
-            while waiting_for_input:
-                for event in pg.event.get():
-                    if event.type == pg.QUIT:
-                        drawing = False
-                        waiting_for_input = False
-                    elif event.type == pg.MOUSEBUTTONDOWN:
-                        if button_continue.collidepoint(event.pos):
-                            waiting_for_input = False
-                        elif button_exit.collidepoint(event.pos):
-                            drawing = False
-                        waiting_for_input = False
-
-    srv = Server('localhost', 65432)
-    srv.start(widgets['steps'])
-
+                widgets['state'] = State.QUITING
+            handle_event(widgets, event)
+            if widgets['state'] == State.SERVING and widgets['server'] is not None:
+                widgets['server'].handle_events()
+        match widgets['state']:
+            case State.CONFIGURING:
+                draw_config_widgets(widgets)
+                screen.blit(widgets['information_surface'], (square_size, 0))
+                draw_preview_image(widgets)
+                screen.blit(widgets['string_drawing_surface'], (0, 0))
+                pg.display.flip()
+            case State.DRAWING:
+                next_pin = draw_string(widgets)
+                if next_pin is None:
+                    stop_drawing(widgets)
+                max_lines = widgets['parameters']['Number of Lines']
+                if (len(widgets['steps']) -1) % max_lines == 0:
+                    pause_drawing(widgets)
+                screen.blit(widgets['string_drawing_surface'], (0, 0))
+                draw_information(widgets)
+                screen.blit(widgets['information_surface'], (widgets['image_square_size'], 0))
+                pg.display.flip()
+            case State.PAUSING:
+                screen.blit(widgets['string_drawing_surface'], (0, 0))
+                draw_information(widgets)
+                screen.blit(widgets['information_surface'], (widgets['image_square_size'], 0))
+                pg.display.flip()
+            case State.SERVING:
+                draw_serving(widgets)
+                screen.blit(widgets['information_surface'], (widgets['image_square_size'], 0))
+                pg.display.flip()
+            case State.QUITING:
+                if widgets['server'] is not None:
+                    widgets['server'].stop()
+                
 
     if widgets['image']:
         print(len(list(widgets['image'].getdata())))
