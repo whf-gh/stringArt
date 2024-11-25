@@ -8,6 +8,7 @@ from rembg import remove
 from PIL import Image, ImageDraw
 from tkinter import Tk, filedialog
 from net_server import TCPServer as Server
+import random
 
 class State(Enum):
     CONFIGURING = 1
@@ -44,6 +45,7 @@ def init_widgets():
     widgets['cursor_visible'] = True
     widgets['state'] = State.CONFIGURING
     widgets['image'] = None
+    widgets['image_original'] = None
     widgets['decay'] = 1.5
     widgets['init_array'] = None
     widgets['processed_array'] = None
@@ -58,8 +60,8 @@ def init_widgets():
 
 def create_config_widgets(widgets):
     params = {'Number of Pins': 200, 'Number of Lines': 500, 'Radius in Pixels': 500, 'Radius in milimeter': 500, 'Shortest Line in Pixels': 500, 'Max Pin Usage': 15}
-    buttons = {'Select Image': select_image, 'process Image': process_image, 'Submit': submit_parameters}
-    checkboxes = {'denoise': False, 'Canny edge detection': False, 'Adaptive thresholding': False, 'Global Thresholding': False}
+    buttons = {'Select Image': select_image, 'Submit': submit_parameters}
+    checkboxes = {'Remove Background': False, 'denoise': False, 'Canny edge detection': False, 'Adaptive thresholding': False, 'Global Thresholding': False, 'Line Thickness': False, 'Use Processed Image Only': False}
     widgets['parameters'] = params
     widgets['buttons'] = buttons
     widgets['checkboxes'] = checkboxes
@@ -69,28 +71,30 @@ def create_config_widgets(widgets):
     font = widgets['font']
     labal_length = font.size(max(params.keys(), key=len))[0]
     font_size = font.size('1000000')
+    if widgets['image_original'] is not None:
+        widgets['image'] = widgets['image_original'].copy()
     for param, default in params.items():
         label = font.render(param, True, (255, 255, 255))
         widgets['labels'].append((label, copy.copy(labal_position)))
-        input_box = pg.Rect(labal_position[0] + labal_length + font_size[1], labal_position[1], font_size[0], font_size[1] * 1.5)
+        input_box = pg.Rect(labal_position[0] + labal_length + font_size[1], labal_position[1], font_size[0], font_size[1] * 1.2)
         widgets['input_boxes'].append(input_box)
         widgets['defaults'][param] = default  # Set default value
-        labal_position[1] += font_size[1] * 2
+        labal_position[1] += font_size[1] * 1.7
     for checkbox_label in checkboxes.keys():
         checkbox_box = pg.Rect(labal_position[0], labal_position[1], font_size[1], font_size[1])
         widgets['checkbox_boxes'][checkbox_label] = checkbox_box
         widgets['checkbox_labels'][checkbox_label] = font.render(checkbox_label, True, (255, 255, 255))
-        labal_position[1] += font_size[1] * 2
+        labal_position[1] += font_size[1] * 1.7
     for button_label in buttons.keys():
         widgets['button_boxes'][button_label] = pg.Rect(labal_position[0], labal_position[1], font.size(button_label)[0] * 1.2, font.size(button_label)[1] * 1.5)
         widgets['button_label'][button_label] = font.render(button_label, True, (255, 255, 255))
-        labal_position[1] += font_size[1] * 2
+        labal_position[1] += font_size[1] * 1.7
     widgets['active_box'] = widgets['input_boxes'][0]  # Set the cursor in the first input box
     widgets['state'] = State.CONFIGURING
     widgets['pins'] = calculate_pins(widgets['image_square_size'], params['Radius in Pixels'], params['Number of Pins'])
 
 def create_information_widgets(widgets):
-    buttons = {'Stop': stop_drawing, 'Pause': pause_drawing, 'Resume': resume_drawing}
+    buttons = {'Back': create_config_widgets, 'Stop': stop_drawing, 'Pause': pause_drawing, 'Resume': resume_drawing}
     widgets['input_boxes'] = []
     widgets['checkboxes'] = {}
     widgets['buttons'] = buttons
@@ -100,7 +104,6 @@ def create_information_widgets(widgets):
 def stop_drawing(widgets):
     widgets['state'] = State.SERVING
     widgets['server'] = Server(widgets['steps'], '0.0.0.0', 65432)
-    # TODO: update information surface for serving
 
 def pause_drawing(widgets):
     widgets['state'] = State.PAUSING
@@ -141,10 +144,12 @@ def submit_parameters(widgets):
     widgets['state'] = State.DRAWING
     create_information_widgets(widgets)
     init_drawing(widgets)
+    widgets['steps'] = []
     widgets['steps'].append(widgets['pins'][widgets['current_index']])
     widgets['buttons'].pop('Resume', None)
 
 def select_image(widgets):
+    image = None
     # Use tkinter to open a file dialog
     screen_size = widgets['image_square_size']
     root = Tk()
@@ -168,9 +173,11 @@ def select_image(widgets):
             right = left + screen_size
             bottom = top + screen_size
             image = image.crop((left, top, right, bottom))
+        widgets['image'] = image
+        widgets['image_original'] = image.copy()
+        process_image(widgets)
 
     root.destroy()
-    widgets['image'] = image
     return image
 
 def apply_circle_mask(image, center, radius):
@@ -199,8 +206,8 @@ def apply_circle_mask(image, center, radius):
 
 def process_image(widgets):
     edge_params = {
-        'canny_low': 50,
-        'canny_high': 150,
+        'canny_low': 100,
+        'canny_high': 160,
         'adaptive_block': 9,
         'adaptive_c': 2,
         'blur_kernel': (5, 5),
@@ -208,51 +215,57 @@ def process_image(widgets):
         'erode_kernel': np.ones((1, 1), np.uint8)
     }
 
-    # Remove background
-    widgets['image'] = remove(widgets['image'])
-    # Convert background to white
-    bg = Image.new('RGBA', widgets['image'].size, (255, 255, 255, 255))
-    widgets['image'] = Image.alpha_composite(bg, widgets['image'])
-    # Convert to grayscale
-    widgets['image'] = widgets['image'].convert('L')
+    if widgets['image'] is not None:
+        widgets['image'] = widgets['image_original'].copy()
+        # Convert to grayscale
+        if widgets['checkboxes']['Remove Background']:
+            # Remove background
+            widgets['image'] = remove(widgets['image'])
+            # Convert background to white
+            bg = Image.new('RGBA', widgets['image'].size, (255, 255, 255, 255))
+            widgets['image'] = Image.alpha_composite(bg, widgets['image'])
 
-    image_array = np.array(widgets['image'])
-    widgets['init_array'] = image_array.copy()
-    if widgets['checkboxes']['denoise']:
-        #image_array = cv2.GaussianBlur(image_array, edge_params['blur_kernel'], 0)
-        image_array = cv2.bilateralFilter(image_array, 9, 75, 75)
+        widgets['image'] = widgets['image'].convert('L')
+        image_array = np.array(widgets['image'])
+        widgets['init_array'] = image_array.copy()
+        if widgets['checkboxes']['denoise']:
+            #image_array = cv2.GaussianBlur(image_array, edge_params['blur_kernel'], 0)
+            image_array = cv2.bilateralFilter(image_array, 9, 75, 75)
 
-    if widgets['checkboxes']['Canny edge detection']:
-        # Method 1: Canny edge detection
-        image_array = cv2.Canny(
-            image_array,
-            edge_params['canny_low'],
-            edge_params['canny_high']
-        )
+        if widgets['checkboxes']['Canny edge detection']:
+            # Method 1: Canny edge detection
+            image_array = cv2.Canny(
+                image_array,
+                edge_params['canny_low'],
+                edge_params['canny_high']
+            )
 
-    if widgets['checkboxes']['Adaptive thresholding']:
-        # Method 2: Adaptive thresholding
-        image_array = cv2.adaptiveThreshold(
-            image_array,
-            255,
-            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY_INV,
-            edge_params['adaptive_block'],
-            edge_params['adaptive_c']
-        )
-    if widgets['checkboxes']['Global Thresholding']:
-        _, image_array = cv2.threshold(image_array, 127, 255, cv2.THRESH_BINARY)
+        if widgets['checkboxes']['Adaptive thresholding']:
+            # Method 2: Adaptive thresholding
+            image_array = cv2.adaptiveThreshold(
+                image_array,
+                255,
+                cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                cv2.THRESH_BINARY_INV,
+                edge_params['adaptive_block'],
+                edge_params['adaptive_c']
+            )
+        if widgets['checkboxes']['Global Thresholding']:
+            _, image_array = cv2.threshold(image_array, 127, 255, cv2.THRESH_BINARY)
 
-    # Threshold to make it pure black and white
-    _, image_array = cv2.threshold(image_array, 100, 255, cv2.THRESH_BINARY)
-    # Adjust line thickness if needed
-    image_array = cv2.dilate(image_array, edge_params['dilate_kernel'], iterations=3-1)
-    # Invert colors to get black lines on white background
-    image_array = cv2.bitwise_not(image_array)
+        if widgets['checkboxes']['Line Thickness']:
+            # Adjust line thickness if needed
+            image_array = cv2.dilate(image_array, edge_params['dilate_kernel'], iterations=3-1)
+        if image_array[0][0] == 0:
+            # Invert colors to get black lines on white background
+            image_array = cv2.bitwise_not(image_array)
 
-    widgets['image'] = apply_circle_mask(Image.fromarray(image_array), (widgets['image_square_size'] // 2, widgets['image_square_size'] // 2), widgets['parameters']['Radius in Pixels'])
-    widgets['processed_array'] = np.array(widgets['image'].convert('L'))
-    widgets['init_array'] = np.array(apply_circle_mask(Image.fromarray(widgets['init_array']), (widgets['image_square_size'] // 2, widgets['image_square_size'] // 2), widgets['parameters']['Radius in Pixels']).convert('L'))
+        widgets['image'] = apply_circle_mask(Image.fromarray(image_array), (widgets['image_square_size'] // 2, widgets['image_square_size'] // 2), widgets['parameters']['Radius in Pixels'])
+        widgets['processed_array'] = np.array(widgets['image'].convert('L'))
+        widgets['init_array'] = np.array(apply_circle_mask(Image.fromarray(widgets['init_array']), (widgets['image_square_size'] // 2, widgets['image_square_size'] // 2), widgets['parameters']['Radius in Pixels']).convert('L'))
+        if widgets['checkboxes']['Use Processed Image Only']:
+            widgets['init_array'] = widgets['processed_array'].copy()
+            widgets['processed_array'] = None
 
 def calculate_pins(squareSize, radius, num_pins):
     pins = []
@@ -350,7 +363,10 @@ def find_best_next_pin(widgets, current_index, last_index):
         except ValueError:
             break
 
-    for pin in target_pins:
+    # get 30 random pins from target_pins and save to random_pins
+    random_pins = random.sample(target_pins, min(30, len(target_pins)))
+    #for pin in target_pins:
+    for pin in random_pins:
         darkness, line = calculate_line_darkness(widgets['init_array'], int(current_pin[0]), int(current_pin[1]), int(pin[0]), int(pin[1]))
         if darkness < best_darkness and len(line) > widgets['parameters']['Shortest Line in Pixels'] and steps.count(pin) < widgets['parameters']['Max Pin Usage']:
             best_darkness = darkness
@@ -370,7 +386,7 @@ def update_image_array(widgets, line):
             else:
                 if widgets['init_array'][y, x] < 200:
                     #widgets['init_array'][y, x] = min(int(widgets['init_array'][y, x] * widgets['decay']), 255)
-                    widgets['init_array'][y, x] = min(int(widgets['init_array'][y, x] + 50), 255)
+                    widgets['init_array'][y, x] = min(int(widgets['init_array'][y, x] + 100), 255)
                 else:
                     widgets['init_array'][y, x] = 255
  
@@ -541,6 +557,7 @@ def handle_event(widgets, event):
         for checkbox_label in list(widgets['checkboxes'].keys()):
             if widgets['checkbox_boxes'][checkbox_label].collidepoint((event.pos[0] - square_size, event.pos[1])):
                 widgets['checkboxes'][checkbox_label] = not widgets['checkboxes'][checkbox_label]
+                process_image(widgets)
                 break
     elif event.type == pg.KEYDOWN:
         if widgets.get('active_box'):
@@ -570,8 +587,8 @@ def main():
             if event.type == pg.QUIT:
                 widgets['state'] = State.QUITING
             handle_event(widgets, event)
-            if widgets['state'] == State.SERVING and widgets['server'] is not None:
-                widgets['server'].handle_events()
+        if widgets['state'] == State.SERVING and widgets['server'] is not None:
+            widgets['server'].handle_events()
         match widgets['state']:
             case State.CONFIGURING:
                 draw_config_widgets(widgets)
