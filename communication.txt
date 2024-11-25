@@ -1,0 +1,16 @@
+This document describe the communication protocol between PC program and Delta Robot.
+In this system PC program act as a Server, and the Delta Robot act as a Client.
+The purpose of communication is to transfer the array of coordinate from PC to Robot.
+Each coordinate is a pair of REAL numbers represent the x,y coordinate of the position of a nail the Robot should route the string to.
+All data transfer between Server and Client are encode and decode as ASCII string.
+
+The Client send request to Server, the request is a number.
+If the Client send "0" to Server, it will get the number of coordinate in the array, for example, there are 100 coordinate in array.
+        Client---"0"--->Server
+        Client<--"100"--Server
+If the Client send a number bigger than 0, the Client will get relate count of coordinates from Server. 
+        Client---"3"--->Server
+        Client<--"(199.28800512565522, 132.74337861210535),(263.4792921248144, 948.3710135019719),(224.10737385376336, 113.49150281252633)"---Server
+Each coordinate is surrended by Parentheses, and comma is use to seprate x,y inside a coordinate as well as coordinates inside the array.
+Once a coordinate is sent to Client, it will be removed form the array.
+If Server recived a request bigger than what is left in array, it will send all the left coordinates in array to Client.
