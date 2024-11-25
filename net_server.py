@@ -37,13 +37,14 @@ class TCPServer:
                 num_elements = int(request.decode())
                 self.state = f"received request for {num_elements} elements"
                 if num_elements == 0:
-                    response = self.get_data_length()
+                    response = str(self.get_data_length())
                 else:
                     response = self.get_elements(num_elements)
                 client_socket.sendall(response.encode())
             else:
                 self.inputs.remove(client_socket)
                 client_socket.close()
+                self.state = f"Server started, listening on port:{self.port}"
         except Exception as e:
             print(f"Error: {e}")
             #self.inputs.remove(client_socket)
