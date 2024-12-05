@@ -69,9 +69,9 @@ def create_config_widgets(widgets):
     params = {
         "Number of Pins": 200,
         "Number of Lines": 500,
-        "Radius in Pixels": 500,
+        "Radius in Pixels": widgets["image_square_size"] // 2,
         "Radius in milimeter": 500,
-        "Shortest Line in Pixels": 500,
+        "Shortest Line in Pixels": widgets["image_square_size"] // 2,
         "Max Pin Usage": 15,
     }
     buttons = {"Select Image": select_image, "Submit": submit_parameters}
@@ -153,6 +153,12 @@ def create_information_widgets(widgets):
 
 
 def stop_drawing(widgets):
+    """
+    Stop the drawing process and start the server.
+
+    Args:
+        widgets (dict): A dictionary containing all the widgets and parameters.
+    """
     widgets["state"] = State.SERVING
     widgets["server"] = Server(widgets["steps"], "0.0.0.0", 65432)
 
@@ -564,6 +570,7 @@ def draw_preview_image(widgets):
     surface = widgets["string_drawing_surface"]
     image = widgets["image"]
     parameters = widgets["parameters"]
+    surface.fill(widgets["color_white"])
     # Draw the selected image if available
     if image:
         image_surface = pg.image.fromstring(
@@ -775,17 +782,25 @@ def handle_event(widgets, event):
                 widgets["parameters"][param_name] = (
                     int(current_value[:-1]) if current_value[:-1] else 0
                 )
-            elif event.key == pg.K_TAB:
-                move_to_next_box(widgets)
-            elif event.unicode.isdigit():
-                current_value = str(widgets["parameters"][param_name])
-                widgets["parameters"][param_name] = int(current_value + event.unicode)
-                if param_name == "Number of Pins":
+                if param_name == "Number of Pins" or param_name == "Radius in Pixels":
                     widgets["pins"] = calculate_pins(
                         widgets["image_square_size"],
                         widgets["parameters"]["Radius in Pixels"],
                         widgets["parameters"]["Number of Pins"],
                     )
+                    process_image(widgets)
+            elif event.key == pg.K_TAB:
+                move_to_next_box(widgets)
+            elif event.unicode.isdigit():
+                current_value = str(widgets["parameters"][param_name])
+                widgets["parameters"][param_name] = int(current_value + event.unicode)
+                if param_name == "Number of Pins" or param_name == "Radius in Pixels":
+                    widgets["pins"] = calculate_pins(
+                        widgets["image_square_size"],
+                        widgets["parameters"]["Radius in Pixels"],
+                        widgets["parameters"]["Number of Pins"],
+                    )
+                    process_image(widgets)
 
 
 def main():
