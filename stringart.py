@@ -160,7 +160,16 @@ def stop_drawing(widgets):
         widgets (dict): A dictionary containing all the widgets and parameters.
     """
     widgets["state"] = State.SERVING
-    widgets["server"] = Server(to_real_coordinates(widgets["steps"], widgets["image_square_size"], widgets["parameters"]["Radius in Pixels"], widgets["parameters"]["Radius in milimeter"]), "0.0.0.0", 65432)
+    widgets["server"] = Server(
+        to_real_coordinates(
+            widgets["steps"],
+            widgets["image_square_size"],
+            widgets["parameters"]["Radius in Pixels"],
+            widgets["parameters"]["Radius in milimeter"],
+        ),
+        "0.0.0.0",
+        65432,
+    )
 
 
 def pause_drawing(widgets):
@@ -357,6 +366,7 @@ def calculate_pins(squareSize, radius, num_pins):
         pins.append((x, y))
     return pins
 
+
 def to_real_coordinates(pins, squareSize, radius_pixel, radius_milimeter):
     """
     Convert pins coordinates relate to application window with central point at (squareSize // 2,squareSize // 2) and radius in pixels
@@ -368,6 +378,7 @@ def to_real_coordinates(pins, squareSize, radius_pixel, radius_milimeter):
         y = radius_milimeter * (pin[1] - squareSize // 2) / radius_pixel
         real_pins.append((x, y))
     return real_pins
+
 
 def calculate_line_darkness(img_array, x1, y1, x2, y2):
     """
