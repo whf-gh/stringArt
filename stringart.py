@@ -70,7 +70,7 @@ def create_config_widgets(widgets):
         "Number of Pins": 200,
         "Number of Lines": 500,
         "Radius in Pixels": widgets["image_square_size"] // 2,
-        "Radius in milimeter": 500,
+        "Radius in milimeter": 190,
         "Shortest Line in Pixels": widgets["image_square_size"] // 2,
         "Max Pin Usage": 15,
     }
@@ -160,7 +160,7 @@ def stop_drawing(widgets):
         widgets (dict): A dictionary containing all the widgets and parameters.
     """
     widgets["state"] = State.SERVING
-    widgets["server"] = Server(widgets["steps"], "0.0.0.0", 65432)
+    widgets["server"] = Server(to_real_coordinates(widgets["steps"], widgets["image_square_size"], widgets["parameters"]["Radius in Pixels"], widgets["parameters"]["Radius in milimeter"]), "0.0.0.0", 65432)
 
 
 def pause_drawing(widgets):
@@ -354,10 +354,20 @@ def calculate_pins(squareSize, radius, num_pins):
         angle = 2 * math.pi * i / num_pins
         x = squareSize // 2 + radius * math.cos(angle)
         y = squareSize // 2 + radius * math.sin(angle)
-        # pins.append((int(x), int(y)))
         pins.append((x, y))
     return pins
 
+def to_real_coordinates(pins, squareSize, radius_pixel, radius_milimeter):
+    """
+    Convert pins coordinates relate to application window with central point at (squareSize // 2,squareSize // 2) and radius in pixels
+     to real world coordinates with central point at (0,0) and radius in milimeter.
+    """
+    real_pins = []
+    for pin in pins:
+        x = radius_milimeter * (pin[0] - squareSize // 2) / radius_pixel
+        y = radius_milimeter * (pin[1] - squareSize // 2) / radius_pixel
+        real_pins.append((x, y))
+    return real_pins
 
 def calculate_line_darkness(img_array, x1, y1, x2, y2):
     """
@@ -786,6 +796,7 @@ def handle_event(widgets, event):
                     widgets["pins"] = calculate_pins(
                         widgets["image_square_size"],
                         widgets["parameters"]["Radius in Pixels"],
+                        widgets["parameters"]["Radius in milimeter"],
                         widgets["parameters"]["Number of Pins"],
                     )
                     process_image(widgets)
