@@ -7,6 +7,7 @@ Release/
 *_debug/
 *_release/
 __pycache__/
+build/
 
 #Workbench
 settings/
@@ -48,6 +49,10 @@ multicore_setup.xml
 *.exe
 *.out
 *.app
+
+# pyinstaller
+*.spec
+dist/
 
 # NXP configure tools
 *.bak
