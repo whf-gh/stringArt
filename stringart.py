@@ -59,6 +59,7 @@ def init_widgets():
     widgets["last_index"] = None
     widgets["pins"] = []
     widgets["steps"] = []
+    widgets["steps_index"] = []
     widgets["lines"] = []
     widgets["total_length_in_pixels"] = 0
     widgets["server"] = None
@@ -161,12 +162,13 @@ def stop_drawing(widgets):
     """
     widgets["state"] = State.SERVING
     widgets["server"] = Server(
-        to_real_coordinates(
-            widgets["steps"],
-            widgets["image_square_size"],
-            widgets["parameters"]["Radius in Pixels"],
-            widgets["parameters"]["Radius in milimeter"],
-        ),
+        widgets["steps_index"],
+        #to_real_coordinates(
+        #    widgets["steps"],
+        #    widgets["image_square_size"],
+        #    widgets["parameters"]["Radius in Pixels"],
+        #    widgets["parameters"]["Radius in milimeter"],
+        #),
         "0.0.0.0",
         65432,
     )
@@ -218,7 +220,9 @@ def submit_parameters(widgets):
     create_information_widgets(widgets)
     init_drawing(widgets)
     widgets["steps"] = []
+    widgets["steps_index"] = []
     widgets["steps"].append(widgets["pins"][widgets["current_index"]])
+    widgets["steps_index"].append(widgets["current_index"])
     widgets["buttons"].pop("Resume", None)
 
 
@@ -642,6 +646,7 @@ def draw_string(widgets):
         update_image_array(widgets, line)
         widgets["total_length_in_pixels"] += len(line)
         widgets["steps"].append(next_pin)
+        widgets["steps_index"].append(widgets["current_index"])
         draw_line(surface, line, string_color)
     return next_pin
 
