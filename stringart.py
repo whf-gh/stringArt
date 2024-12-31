@@ -58,6 +58,7 @@ def init_widgets():
     widgets["current_index"] = 0
     widgets["last_index"] = None
     widgets["pins"] = []
+    widgets["use_pin_index"] = False
     widgets["steps"] = []
     widgets["steps_index"] = []
     widgets["lines"] = []
@@ -84,6 +85,7 @@ def create_config_widgets(widgets):
         "Global Thresholding": False,
         "Line Thickness": False,
         "Use Processed Image Only": False,
+        "Use Pin Index": widgets["use_pin_index"],
     }
     widgets["parameters"] = params
     widgets["buttons"] = buttons
@@ -160,19 +162,22 @@ def stop_drawing(widgets):
     Args:
         widgets (dict): A dictionary containing all the widgets and parameters.
     """
+    data_list = []
     widgets["state"] = State.SERVING
+    if widgets["use_pin_index"]:
+        data_list = widgets["steps_index"]
+    else:
+        data_list = to_real_coordinates(
+                widgets["steps"],
+                widgets["image_square_size"],
+                widgets["parameters"]["Radius in Pixels"],
+                widgets["parameters"]["Radius in milimeter"],
+            )
     widgets["server"] = Server(
-        widgets["steps_index"],
-        #to_real_coordinates(
-        #    widgets["steps"],
-        #    widgets["image_square_size"],
-        #    widgets["parameters"]["Radius in Pixels"],
-        #    widgets["parameters"]["Radius in milimeter"],
-        #),
+        data_list,
         "0.0.0.0",
         65432,
     )
-
 
 def pause_drawing(widgets):
     widgets["state"] = State.PAUSING
@@ -359,6 +364,7 @@ def process_image(widgets):
         if widgets["checkboxes"]["Use Processed Image Only"]:
             widgets["init_array"] = widgets["processed_array"].copy()
             widgets["processed_array"] = None
+        widgets["use_pin_index"] = widgets["checkboxes"]["Use Pin Index"]
 
 
 def calculate_pins(squareSize, radius, num_pins):
@@ -812,7 +818,6 @@ def handle_event(widgets, event):
                     widgets["pins"] = calculate_pins(
                         widgets["image_square_size"],
                         widgets["parameters"]["Radius in Pixels"],
-                        widgets["parameters"]["Radius in milimeter"],
                         widgets["parameters"]["Number of Pins"],
                     )
                     process_image(widgets)
