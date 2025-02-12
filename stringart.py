@@ -58,7 +58,7 @@ def init_widgets():
     widgets["current_index"] = 0
     widgets["last_index"] = None
     widgets["pins"] = []
-    widgets["use_pin_index"] = False
+    widgets["use_pin_index"] = True
     widgets["steps"] = []
     widgets["steps_index"] = []
     widgets["lines"] = []
@@ -154,6 +154,16 @@ def create_information_widgets(widgets):
     widgets["button_boxes"] = {}
     widgets["button_label"] = {}
 
+def create_serving_widgets(widgets):
+    buttons = {
+        "Back": create_information_widgets,
+        "Reset": stop_drawing,
+    }
+    widgets["input_boxes"] = []
+    widgets["checkboxes"] = {}
+    widgets["buttons"] = buttons
+    widgets["button_boxes"] = {}
+    widgets["button_label"] = {}
 
 def stop_drawing(widgets):
     """
@@ -164,6 +174,7 @@ def stop_drawing(widgets):
     """
     data_list = []
     widgets["state"] = State.SERVING
+    # create_serving_widgets(widgets)
     if widgets["use_pin_index"]:
         data_list = widgets["steps_index"]
     else:

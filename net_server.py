@@ -12,6 +12,7 @@ class TCPServer:
         self.server_socket.listen(1)
         self.inputs = [self.server_socket]
         self.client_socket = None
+        self.list_orig = data_list.copy()
         self.list_copy = data_list.copy()
         self.state = f"Server started, listening on port:{self.port}"
 
@@ -47,6 +48,7 @@ class TCPServer:
             else:
                 self.inputs.remove(client_socket)
                 client_socket.close()
+                self.list_copy = self.list_orig.copy()
                 self.state = f"Server started, listening on port:{self.port}"
         except Exception as e:
             print(f"Error: {e}")
