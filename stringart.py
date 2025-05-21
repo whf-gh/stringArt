@@ -1,15 +1,17 @@
-import cv2
-import copy
-import math
-import numpy as np
 import pygame as pg
 from enum import Enum
-from rembg import remove
-from PIL import Image, ImageDraw
-from tkinter import Tk, filedialog
-from net_server import TCPServer as Server
-import random
+import numpy as np
+import copy # For deepcopying parts of widgets if necessary
 
+# New module imports
+import ui
+import image_processing
+import string_art_generator
+from net_server import TCPServer as Server
+
+# PIL and Tkinter should ideally be encapsulated within image_processing or ui
+# For image conversion, PIL might be used here temporarily before passing to ui
+from PIL import Image # For converting numpy array to PIL then to Pygame surface
 
 class State(Enum):
     CONFIGURING = 1
@@ -18,888 +20,437 @@ class State(Enum):
     SERVING = 4
     QUITING = 5
 
+# --- Callback Functions ---
+def pil_to_pygame_surface(pil_image):
+    """Converts a PIL image to a Pygame surface."""
+    if pil_image is None:
+        return None
+    # Ensure image is in RGB or RGBA for Pygame
+    if pil_image.mode not in ('RGB', 'RGBA'):
+        pil_image = pil_image.convert('RGB')
+    
+    return pg.image.fromstring(pil_image.tobytes(), pil_image.size, pil_image.mode)
 
-def init_widgets():
-    widgets = {}
-    pg.init()
-    scrsize = np.array(pg.display.get_desktop_sizes()[0], dtype=int) * 0.9
-    square_size = int(scrsize[1])
-    widgets["window"] = pg.display.set_mode(scrsize)
-    pg.display.set_caption("StringArtProcess")
-    widgets["image_square_size"] = int(square_size)
-    widgets["string_drawing_surface"] = pg.surface.Surface(
-        (square_size, square_size), pg.SRCALPHA
-    )
-    widgets["information_surface"] = pg.surface.Surface(
-        (scrsize[0] - square_size, square_size), pg.SRCALPHA
-    )
-    fontsize = int(scrsize[1] * 0.03)
-    widgets["font"] = pg.font.SysFont("Arial", fontsize)
-    widgets["color_white"] = (255, 255, 255)
-    widgets["color_black"] = (0, 0, 0)
-    widgets["parameters"] = {}
-    widgets["labels"] = []
-    widgets["input_boxes"] = []
-    widgets["defaults"] = {}
-    widgets["buttons"] = {}
-    widgets["button_boxes"] = {}
-    widgets["button_label"] = {}
-    widgets["checkboxes"] = {}
-    widgets["checkbox_boxes"] = {}
-    widgets["checkbox_labels"] = {}
-    widgets["active_box"] = None
-    widgets["cursor_visible"] = True
-    widgets["state"] = State.CONFIGURING
-    widgets["image"] = None
-    widgets["image_original"] = None
-    widgets["decay"] = 1.5
-    widgets["init_array"] = None
-    widgets["processed_array"] = None
-    widgets["current_index"] = 0
-    widgets["last_index"] = None
-    widgets["pins"] = []
-    widgets["use_pin_index"] = True
-    widgets["steps"] = []
-    widgets["steps_index"] = []
-    widgets["lines"] = []
-    widgets["total_length_in_pixels"] = 0
-    widgets["server"] = None
-    return widgets
+def handle_recalculate_pins_and_process_image(widgets):
+    """Recalculates pins and re-processes the image. Called when relevant params change."""
+    # Recalculate pins
+    if "parameters" in widgets and "image_square_size" in widgets:
+        widgets["pins"] = string_art_generator.calculate_pins(
+            widgets["image_square_size"],
+            widgets["parameters"].get("Radius in Pixels", widgets["image_square_size"] // 4),
+            widgets["parameters"].get("Number of Pins", 200)
+        )
+    # Re-process image
+    handle_process_image(widgets)
+
+def handle_select_image(widgets):
+    """Callback for selecting an image."""
+    pil_img, pil_img_original = image_processing.select_image(widgets["image_square_size"])
+    if pil_img and pil_img_original:
+        widgets["image_original_pil"] = pil_img_original # Store original PIL for re-processing
+        widgets["image_pil"] = pil_img # Store current PIL for processing
+        
+        # Initial processing based on current checkbox states
+        handle_process_image(widgets)
+    # ui.draw_preview_image and ui.draw_config_widgets will be called in the main loop
+
+def handle_process_image(widgets):
+    """Callback for processing the image based on checkbox states."""
+    if widgets.get("image_pil") is None: # Or image_original_pil if that's the source
+        # Try to get from original if current image_pil is not set
+        if widgets.get("image_original_pil") is None:
+            print("No image selected to process.")
+            return
+        else: # Use original as the base for processing
+             widgets["image_pil"] = widgets["image_original_pil"].copy()
 
 
-def create_config_widgets(widgets):
-    params = {
-        "Number of Pins": 200,
-        "Number of Lines": 500,
-        "Radius in Pixels": widgets["image_square_size"] // 2,
-        "Radius in milimeter": 190,
-        "Shortest Line in Pixels": widgets["image_square_size"] // 2,
-        "Max Pin Usage": 15,
-    }
-    buttons = {"Select Image": select_image, "Submit": submit_parameters}
-    checkboxes = {
-        "Remove Background": False,
-        "denoise": False,
-        "Canny edge detection": False,
-        "Adaptive thresholding": False,
-        "Global Thresholding": False,
-        "Line Thickness": False,
-        "Use Processed Image Only": False,
-        "Use Pin Index": widgets["use_pin_index"],
-    }
-    widgets["parameters"] = params
-    widgets["buttons"] = buttons
-    widgets["checkboxes"] = checkboxes
-    margin = widgets["image_square_size"] * 0.05
-    position = [margin, margin]
-    labal_position = position
-    font = widgets["font"]
-    labal_length = font.size(max(params.keys(), key=len))[0]
-    font_size = font.size("1000000")
-    if widgets["image_original"] is not None:
-        widgets["image"] = widgets["image_original"].copy()
-    for param, default in params.items():
-        label = font.render(param, True, (255, 255, 255))
-        widgets["labels"].append((label, copy.copy(labal_position)))
-        input_box = pg.Rect(
-            labal_position[0] + labal_length + font_size[1],
-            labal_position[1],
-            font_size[0],
-            font_size[1] * 1.2,
-        )
-        widgets["input_boxes"].append(input_box)
-        widgets["defaults"][param] = default  # Set default value
-        labal_position[1] += font_size[1] * 1.7
-    for checkbox_label in checkboxes.keys():
-        checkbox_box = pg.Rect(
-            labal_position[0], labal_position[1], font_size[1], font_size[1]
-        )
-        widgets["checkbox_boxes"][checkbox_label] = checkbox_box
-        widgets["checkbox_labels"][checkbox_label] = font.render(
-            checkbox_label, True, (255, 255, 255)
-        )
-        labal_position[1] += font_size[1] * 1.7
-    for button_label in buttons.keys():
-        widgets["button_boxes"][button_label] = pg.Rect(
-            labal_position[0],
-            labal_position[1],
-            font.size(button_label)[0] * 1.2,
-            font.size(button_label)[1] * 1.5,
-        )
-        widgets["button_label"][button_label] = font.render(
-            button_label, True, (255, 255, 255)
-        )
-        labal_position[1] += font_size[1] * 1.7
-    widgets["active_box"] = widgets["input_boxes"][
-        0
-    ]  # Set the cursor in the first input box
-    widgets["state"] = State.CONFIGURING
-    widgets["pins"] = calculate_pins(
+    # Ensure 'init_array' from original image is available if needed by process_image
+    # This depends on how process_image is structured. If it needs an initial array from
+    # the originally selected image (before other processing steps), ensure it's passed.
+    # For now, assuming process_image uses widgets["image_pil"] (a PIL image) as its starting point.
+    # And that image_original_pil holds the true original if needed for a full reset.
+    
+    # The process_image function in image_processing.py expects:
+    # image_to_process (PIL), checkboxes_state, image_square_size, radius_pixels, existing_init_array (optional)
+    # Let's assume image_to_process is the currently selected (and potentially resized/cropped) image
+    
+    # If image_original_pil exists, use it as the pristine source for processing
+    source_pil_image = widgets.get("image_original_pil", widgets.get("image_pil"))
+    if not source_pil_image:
+        print("No source image available for processing.")
+        return
+
+    # Convert original PIL to numpy array for 'existing_init_array' if needed
+    existing_init_array_for_processing = np.array(source_pil_image.convert('L'))
+
+
+    processed_pil_image, init_array_np, processed_array_np = image_processing.process_image(
+        source_pil_image.copy(), # Pass a copy to avoid modifying the stored original PIL
+        widgets["checkboxes"],
         widgets["image_square_size"],
-        params["Radius in Pixels"],
-        params["Number of Pins"],
+        widgets["parameters"].get("Radius in Pixels", widgets["image_square_size"] // 4),
+        existing_init_array=existing_init_array_for_processing 
     )
 
+    widgets["image_pil"] = processed_pil_image # Update with the newly processed PIL image
+    widgets["init_array"] = init_array_np     # Main array for string algorithm
+    widgets["processed_array"] = processed_array_np # Secondary array (e.g. edges)
 
-def create_information_widgets(widgets):
-    buttons = {
-        "Back": create_config_widgets,
-        "Stop": stop_drawing,
-        "Pause": pause_drawing,
-        "Resume": resume_drawing,
-    }
-    widgets["input_boxes"] = []
-    widgets["checkboxes"] = {}
-    widgets["buttons"] = buttons
-    widgets["button_boxes"] = {}
-    widgets["button_label"] = {}
+    # Update Pygame surfaces for UI display
+    widgets["image"] = pil_to_pygame_surface(widgets["image_pil"])
+    if widgets["init_array"] is not None:
+        widgets["display_init_surface"] = pil_to_pygame_surface(Image.fromarray(widgets["init_array"]))
+    else:
+        widgets["display_init_surface"] = None
+    if widgets["processed_array"] is not None:
+        widgets["display_processed_surface"] = pil_to_pygame_surface(Image.fromarray(widgets["processed_array"]))
+    else:
+        widgets["display_processed_surface"] = None
+        
+    # Update use_pin_index based on checkbox
+    widgets["use_pin_index"] = widgets["checkboxes"].get("Use Pin Index", True)
 
-def create_serving_widgets(widgets):
-    buttons = {
-        "Back": create_information_widgets,
-        "Reset": stop_drawing,
-    }
-    widgets["input_boxes"] = []
-    widgets["checkboxes"] = {}
-    widgets["buttons"] = buttons
-    widgets["button_boxes"] = {}
-    widgets["button_label"] = {}
 
-def stop_drawing(widgets):
-    """
-    Stop the drawing process and start the server.
+def handle_submit_parameters(widgets):
+    """Callback for submitting parameters from the config UI."""
+    if widgets.get("image_pil") is None: # Check if an image has been selected and processed
+        print("Please select an image first.")
+        # Optionally, provide user feedback through the UI if possible
+        return
 
-    Args:
-        widgets (dict): A dictionary containing all the widgets and parameters.
-    """
-    data_list = []
+    # Parameters are already updated in widgets["parameters"] by ui.handle_event's text input logic
+    # No, ui.handle_event only updates the string value. Conversion to int happens here.
+    for key, value_str in widgets["parameters"].items():
+        try:
+            widgets["parameters"][key] = int(value_str)
+        except ValueError:
+            print(f"Warning: Could not convert parameter {key} value '{value_str}' to int. Using default or 0.")
+            # Fallback to default if available, or 0. The ui.py should provide defaults initially.
+            widgets["parameters"][key] = widgets["defaults"].get(key, 0)
+
+
+    # If init_array is not yet set (e.g. first submission after image selection and processing)
+    # it should have been set by handle_process_image.
+    # If image_pil exists but init_array somehow isn't there, create from image_pil
+    if widgets["init_array"] is None and widgets.get("image_pil"):
+        print("Warning: init_array was None after image processing. Re-creating from current PIL image.")
+        widgets["init_array"] = np.array(widgets["image_pil"].convert('L'))
+    elif widgets["init_array"] is None:
+        print("Error: No image data available (init_array is None). Cannot start drawing.")
+        return
+
+
+    widgets["state"] = State.DRAWING
+    
+    # Reset drawing state
+    widgets["current_index"] = 0 # Start from the first pin (or a random one)
+    widgets["last_index"] = None
+    widgets["steps"] = [] # Store pin coordinates
+    widgets["steps_index"] = [] # Store pin indices
+    widgets["total_length_in_pixels"] = 0
+    
+    # Initial pin for starting the drawing process
+    if widgets["pins"]: # Ensure pins are calculated
+        widgets["steps"].append(widgets["pins"][widgets["current_index"]])
+        widgets["steps_index"].append(widgets["current_index"])
+    else:
+        print("Error: Pins not calculated. Cannot start drawing.")
+        widgets["state"] = State.CONFIGURING # Revert to config
+        return
+
+    # Setup UI for drawing information
+    ui.create_information_widgets(widgets, 
+                                   back_callback=handle_back_to_config, 
+                                   stop_callback=handle_stop_drawing, 
+                                   pause_callback=handle_pause_drawing, 
+                                   resume_callback=handle_resume_drawing)
+    # Prepare the drawing surface in the UI
+    ui.init_drawing(widgets) # This clears the surface and draws pins/circle
+    
+    # Remove "Resume" button if it exists from a previous pause
+    if "Resume" in widgets["buttons"]:
+        widgets["buttons"].pop("Resume")
+        # ui.py should also remove it from its button_boxes/labels if create_information_widgets doesn't fully reset them.
+        # For simplicity, assume create_information_widgets correctly rebuilds the button list.
+
+
+def handle_main_event(widgets, event):
+    """Callback for global events not handled by specific UI elements."""
+    if event.type == pg.QUIT:
+        widgets["state"] = State.QUITING
+    # Add other global event handling here if needed
+
+def handle_stop_drawing(widgets):
+    """Callback to stop drawing and enter serving mode."""
     widgets["state"] = State.SERVING
-    # create_serving_widgets(widgets)
+    data_list = []
     if widgets["use_pin_index"]:
         data_list = widgets["steps_index"]
     else:
-        data_list = to_real_coordinates(
+        if not widgets["steps"]: # Ensure steps exist
+             print("No steps recorded to send to server.")
+        else:
+            data_list = string_art_generator.to_real_coordinates(
                 widgets["steps"],
                 widgets["image_square_size"],
-                widgets["parameters"]["Radius in Pixels"],
-                widgets["parameters"]["Radius in milimeter"],
+                widgets["parameters"].get("Radius in Pixels", 1), # Avoid div by zero
+                widgets["parameters"].get("Radius in milimeter", 0)
             )
-    widgets["server"] = Server(
-        data_list,
-        "0.0.0.0",
-        65432,
-    )
+            
+    widgets["server"] = Server(data_list, "0.0.0.0", 65432)
+    ui.create_serving_widgets(widgets, 
+                              back_callback=lambda w: ui.create_information_widgets(w, handle_back_to_config, handle_stop_drawing, handle_pause_drawing, handle_resume_drawing), # Go back to info screen
+                              reset_callback=handle_reset_to_config) # Reset could go to full config
 
-def pause_drawing(widgets):
-    widgets["state"] = State.PAUSING
-    widgets["buttons"]["Resume"] = resume_drawing
-
-
-def resume_drawing(widgets):
-    widgets["state"] = State.DRAWING
-    widgets["buttons"].pop("Resume", None)
-
-
-def move_to_next_box(widgets):
-    if widgets["active_box"] in widgets["input_boxes"]:
-        current_index = widgets["input_boxes"].index(widgets["active_box"])
-        next_index = (current_index + 1) % (len(widgets["input_boxes"]) + 1)
-        if next_index < len(widgets["input_boxes"]):
-            widgets["active_box"] = widgets["input_boxes"][next_index]
-        else:
-            widgets["active_box"] = None  # Move to submit button
-    elif widgets["active_box"] is None:
-        widgets["active_box"] = widgets["input_boxes"][
-            0
-        ]  # Move back to the first input box
-
-
-def get_param_name(widgets):
-    index = widgets["input_boxes"].index(widgets["active_box"])
-    return list(widgets["parameters"].keys())[index]
-
-
-def submit_parameters(widgets):
-    # Convert parameters to integers
-    if widgets["image"] is None:
-        return
-    parameters = widgets["parameters"]
-    for key in parameters:
-        if parameters[key] == "":
-            parameters[key] = "0"  # Default to 0 if empty
-        parameters[key] = int(parameters[key])
-    if widgets["image"].mode != "L":
-        widgets["image"] = widgets["image"].convert("L")
-    if widgets["init_array"] is None:
-        widgets["init_array"] = np.array(widgets["image"])
-    widgets["state"] = State.DRAWING
-    create_information_widgets(widgets)
-    init_drawing(widgets)
+def handle_reset_to_config(widgets):
+    """Resets state to configuration, clears server and drawing progress."""
+    if widgets.get("server"):
+        widgets["server"].stop()
+        widgets["server"] = None
     widgets["steps"] = []
     widgets["steps_index"] = []
-    widgets["steps"].append(widgets["pins"][widgets["current_index"]])
-    widgets["steps_index"].append(widgets["current_index"])
-    widgets["buttons"].pop("Resume", None)
+    widgets["total_length_in_pixels"] = 0
+    widgets["current_index"] = 0
+    widgets["last_index"] = None
+    # Potentially reset image arrays if needed, or keep them for user
+    # widgets["image_pil"] = None
+    # widgets["image_original_pil"] = None
+    # widgets["image"] = None 
+    # widgets["init_array"] = None
+    # widgets["processed_array"] = None
+    
+    widgets["state"] = State.CONFIGURING
+    # Re-initialize config widgets with default parameters and callbacks
+    _setup_config_ui(widgets)
 
 
-def select_image(widgets):
-    image = None
-    # Use tkinter to open a file dialog
-    screen_size = widgets["image_square_size"]
-    root = Tk()
-    root.withdraw()  # Hide the root window
-    file_path = filedialog.askopenfilename()
-    if file_path:
-        # image = Image.open(file_path).convert('L')
-        image = Image.open(file_path)
-        img_width, img_height = image.size
-        # Scale the image if it is smaller than the square
-        if img_width < screen_size or img_height < screen_size:
-            scale_factor = max(screen_size / img_width, screen_size / img_height)
-            new_size = (int(img_width * scale_factor), int(img_height * scale_factor))
-            image = image.resize(new_size, Image.LANCZOS)
-            img_width, img_height = new_size
+def handle_pause_drawing(widgets):
+    """Callback to pause drawing."""
+    if widgets["state"] == State.DRAWING: # Only pause if currently drawing
+        widgets["state"] = State.PAUSING
+        # ui.create_information_widgets should ideally handle adding/removing Resume button
+        # For now, let's assume it's handled by redrawing the info panel or specific button logic in ui.py
+        # If not, we might need: ui.add_resume_button(widgets, handle_resume_drawing)
 
-        if img_width > screen_size or img_height > screen_size:
-            # Calculate the cropping box
-            left = (img_width - screen_size) // 2
-            top = (img_height - screen_size) // 2
-            right = left + screen_size
-            bottom = top + screen_size
-            image = image.crop((left, top, right, bottom))
-        widgets["image"] = image
-        widgets["image_original"] = image.copy()
-        process_image(widgets)
-
-    root.destroy()
-    return image
+def handle_resume_drawing(widgets):
+    """Callback to resume drawing."""
+    if widgets["state"] == State.PAUSING: # Only resume if paused
+        widgets["state"] = State.DRAWING
+        # ui.create_information_widgets should handle removing Resume and ensuring Pause is there
+        # If not, we might need: ui.remove_resume_button(widgets)
 
 
-def apply_circle_mask(image, center, radius):
-    # Convert to RGBA if image is not already in RGBA mode
-    if image.mode != "RGBA":
-        image = image.convert("RGBA")
-
-    # Create a mask with the same size as the original image
-    mask = Image.new("L", image.size, 0)
-    draw = ImageDraw.Draw(mask)
-
-    # Draw white circle on black background
-    draw.ellipse(
-        [
-            (center[0] - radius, center[1] - radius),
-            (center[0] + radius, center[1] + radius),
-        ],
-        fill=255,
-    )
-
-    # Set alpha channel using the mask
-    image.putalpha(mask)
-
-    # Convert back to RGB on white background
-    white_background = Image.new("RGB", image.size, (255, 255, 255))
-    white_background.paste(image, mask=image.split()[3])  # Use alpha channel as mask
-
-    return white_background
+def handle_back_to_config(widgets):
+    """Callback to go back to the configuration screen from information/serving."""
+    if widgets.get("server"): # Stop server if running
+        widgets["server"].stop()
+        widgets["server"] = None
+    widgets["state"] = State.CONFIGURING
+    _setup_config_ui(widgets)
 
 
-def process_image(widgets):
-    edge_params = {
-        "canny_low": 100,
-        "canny_high": 160,
-        "adaptive_block": 9,
-        "adaptive_c": 2,
-        "blur_kernel": (5, 5),
-        "dilate_kernel": np.ones((2, 2), np.uint8),
-        "erode_kernel": np.ones((1, 1), np.uint8),
+def _setup_config_ui(widgets):
+    """Helper to initialize or re-initialize config UI elements and parameters."""
+    # Define initial parameters for the UI
+    # These will be used by ui.create_config_widgets
+    # The actual values in widgets["parameters"] will be stringified by ui.py for display
+    # And converted back to int by handle_submit_parameters or when text input changes.
+    initial_params = {
+        "Number of Pins": widgets["parameters"].get("Number of Pins", 200),
+        "Number of Lines": widgets["parameters"].get("Number of Lines", 500),
+        "Radius in Pixels": widgets["parameters"].get("Radius in Pixels", widgets["image_square_size"] // 2),
+        "Radius in milimeter": widgets["parameters"].get("Radius in milimeter", 190),
+        "Shortest Line in Pixels": widgets["parameters"].get("Shortest Line in Pixels", widgets["image_square_size"] // 10),
+        "Max Pin Usage": widgets["parameters"].get("Max Pin Usage", 15),
     }
+    widgets["parameters"] = {k: str(v) for k,v in initial_params.items()} # UI expects strings for input boxes
+    widgets["defaults"] = initial_params # Store defaults for reset or validation
 
-    if widgets["image"] is not None:
-        widgets["image"] = widgets["image_original"].copy()
-        # Convert to grayscale
-        if widgets["checkboxes"]["Remove Background"]:
-            # Remove background
-            widgets["image"] = remove(widgets["image"])
-            # Convert background to white
-            bg = Image.new("RGBA", widgets["image"].size, (255, 255, 255, 255))
-            widgets["image"] = Image.alpha_composite(bg, widgets["image"])
-
-        widgets["image"] = widgets["image"].convert("L")
-        image_array = np.array(widgets["image"])
-        widgets["init_array"] = image_array.copy()
-        if widgets["checkboxes"]["denoise"]:
-            # image_array = cv2.GaussianBlur(image_array, edge_params['blur_kernel'], 0)
-            image_array = cv2.bilateralFilter(image_array, 9, 75, 75)
-
-        if widgets["checkboxes"]["Canny edge detection"]:
-            # Method 1: Canny edge detection
-            image_array = cv2.Canny(
-                image_array, edge_params["canny_low"], edge_params["canny_high"]
-            )
-
-        if widgets["checkboxes"]["Adaptive thresholding"]:
-            # Method 2: Adaptive thresholding
-            image_array = cv2.adaptiveThreshold(
-                image_array,
-                255,
-                cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                cv2.THRESH_BINARY_INV,
-                edge_params["adaptive_block"],
-                edge_params["adaptive_c"],
-            )
-        if widgets["checkboxes"]["Global Thresholding"]:
-            _, image_array = cv2.threshold(image_array, 127, 255, cv2.THRESH_BINARY)
-
-        if widgets["checkboxes"]["Line Thickness"]:
-            # Adjust line thickness if needed
-            image_array = cv2.dilate(
-                image_array, edge_params["dilate_kernel"], iterations=3 - 1
-            )
-        if image_array[0][0] == 0:
-            # Invert colors to get black lines on white background
-            image_array = cv2.bitwise_not(image_array)
-
-        widgets["image"] = apply_circle_mask(
-            Image.fromarray(image_array),
-            (widgets["image_square_size"] // 2, widgets["image_square_size"] // 2),
-            widgets["parameters"]["Radius in Pixels"],
-        )
-        widgets["processed_array"] = np.array(widgets["image"].convert("L"))
-        widgets["init_array"] = np.array(
-            apply_circle_mask(
-                Image.fromarray(widgets["init_array"]),
-                (widgets["image_square_size"] // 2, widgets["image_square_size"] // 2),
-                widgets["parameters"]["Radius in Pixels"],
-            ).convert("L")
-        )
-        if widgets["checkboxes"]["Use Processed Image Only"]:
-            widgets["init_array"] = widgets["processed_array"].copy()
-            widgets["processed_array"] = None
-        widgets["use_pin_index"] = widgets["checkboxes"]["Use Pin Index"]
-
-
-def calculate_pins(squareSize, radius, num_pins):
-    pins = []
-    for i in range(num_pins):
-        angle = 2 * math.pi * i / num_pins
-        x = squareSize // 2 + radius * math.cos(angle)
-        y = squareSize // 2 + radius * math.sin(angle)
-        pins.append((x, y))
-    return pins
-
-
-def to_real_coordinates(pins, squareSize, radius_pixel, radius_milimeter):
-    """
-    Convert pins coordinates relate to application window with central point at (squareSize // 2,squareSize // 2) and radius in pixels
-     to real world coordinates with central point at (0,0) and radius in milimeter.
-    """
-    real_pins = []
-    for pin in pins:
-        x = radius_milimeter * (pin[0] - squareSize // 2) / radius_pixel
-        y = radius_milimeter * (pin[1] - squareSize // 2) / radius_pixel
-        real_pins.append((x, y))
-    return real_pins
-
-
-def calculate_line_darkness(img_array, x1, y1, x2, y2):
-    """
-    Calculate the darkness of pixel values along a line between two points in a grayscale image.
-
-    Args:
-        image: PIL Image in 'L' mode (grayscale)
-        x1, y1: Starting point coordinates
-        x2, y2: Ending point coordinates
-
-    Returns:
-        tuple: (darkness of pixel values, list of coordinates along the line)
-    """
-    pixels = []
-    pixel_sum = 0
-
-    # Calculate changes and steps
-    dx = abs(x2 - x1)
-    dy = abs(y2 - y1)
-
-    # Determine direction
-    x_step = 1 if x1 < x2 else -1
-    y_step = 1 if y1 < y2 else -1
-
-    # Current positions
-    x = x1
-    y = y1
-
-    # Determine whether to drive the algorithm by x or y
-    if dx > dy:
-        # Drive by x
-        error = dx / 2
-        while x != x2 + x_step:
-            if 0 <= x < img_array.shape[1] and 0 <= y < img_array.shape[0]:
-                pixel_sum += img_array[y, x]
-                pixels.append((x, y))
-
-            error -= dy
-            if error < 0:
-                y += y_step
-                error += dx
-            x += x_step
-    else:
-        # Drive by y
-        error = dy / 2
-        while y != y2 + y_step:
-            if 0 <= x < img_array.shape[1] and 0 <= y < img_array.shape[0]:
-                pixel_sum += img_array[y, x]
-                pixels.append((x, y))
-
-            error -= dx
-            if error < 0:
-                x += x_step
-                error += dy
-            y += y_step
-
-    if pixel_sum == 0:
-        return 255, []
-    return pixel_sum / len(pixels), pixels
-
-
-def find_best_next_pin(widgets, current_index, last_index):
-    best_darkness = 255
-    best_line = None
-    best_pin = None
-    current_pin = widgets["pins"][current_index]
-    steps = copy.copy(widgets["steps"])
-    target_pins = copy.copy(widgets["pins"])
-    if last_index is not None:
-        if last_index > current_index:
-            target_pins.pop(last_index)
-            target_pins.pop(current_index)
-        else:
-            target_pins.pop(current_index)
-            target_pins.pop(last_index)
-    else:
-        target_pins.pop(current_index)
-
-    # remove used steps
-    while True:
-        try:
-            index = steps.index(current_pin)
-            if index > 0:
-                target_pins.remove(steps[index - 1])
-            if index < len(steps) - 1:
-                target_pins.remove(steps[index + 1])
-            steps.pop(index)
-        except ValueError:
-            break
-
-    # get 30 random pins from target_pins and save to random_pins
-    random_pins = random.sample(target_pins, min(30, len(target_pins)))
-    # for pin in target_pins:
-    for pin in random_pins:
-        darkness, line = calculate_line_darkness(
-            widgets["init_array"],
-            int(current_pin[0]),
-            int(current_pin[1]),
-            int(pin[0]),
-            int(pin[1]),
-        )
-        if (
-            darkness < best_darkness
-            and len(line) > widgets["parameters"]["Shortest Line in Pixels"]
-            and steps.count(pin) < widgets["parameters"]["Max Pin Usage"]
-        ):
-            best_darkness = darkness
-            best_line = line
-            best_pin = pin
-
-    return best_pin, best_line
-
-
-def update_image_array(widgets, line):
-    for x, y in line:
-        if widgets["init_array"][y, x] != 255:
-            if widgets["processed_array"] is not None:
-                if (
-                    widgets["processed_array"][y, x] == 0
-                    and widgets["init_array"][y, x] < 200
-                ):
-                    widgets["init_array"][y, x] = (
-                        widgets["init_array"][y, x]
-                        + (255 - widgets["init_array"][y, x]) // 2
-                    )
-                else:
-                    widgets["init_array"][y, x] = 255
-            elif widgets["init_array"][y, x] < 200:
-                # widgets['init_array'][y, x] = min(int(widgets['init_array'][y, x] * widgets['decay']), 255)
-                widgets["init_array"][y, x] = min(
-                    int(widgets["init_array"][y, x] + 100), 255
-                )
-            else:
-                widgets["init_array"][y, x] = 255
-
-
-def draw_line(screen, line, color=(0, 0, 0)):
-    for x, y in line:
-        screen.set_at((x, y), color)
-
-
-def draw_config_widgets(widgets):
-    surface = widgets["information_surface"]
-    font = widgets["font"]
-    parameters = widgets["parameters"]
-    # Clear the surface
-    surface.fill((30, 30, 30))
-
-    for label, pos in widgets["labels"]:
-        surface.blit(label, pos)
-
-    for i, box in enumerate(widgets["input_boxes"]):
-        # Clear the input box area
-        pg.draw.rect(surface, (30, 30, 30), box)
-
-        # Draw the input box border
-        pg.draw.rect(surface, (255, 255, 255), box, 2)
-
-        param_name = list(parameters.keys())[i]
-        txt_surface = font.render(str(parameters[param_name]), True, (255, 255, 255))
-        surface.blit(txt_surface, (box.x + 5, box.y + 5))
-
-        # Draw cursor if this is the active box
-        if box == widgets.get("active_box") and widgets.get("cursor_visible"):
-            cursor_x = box.x + 5 + txt_surface.get_width()
-            cursor_y = box.y + 5
-            pg.draw.line(
-                surface,
-                (255, 255, 255),
-                (cursor_x, cursor_y),
-                (cursor_x, cursor_y + txt_surface.get_height()),
-                2,
-            )
-
-    for checkbox_label in widgets["checkboxes"]:
-        checkbox_box = widgets["checkbox_boxes"][checkbox_label]
-        pg.draw.rect(surface, (255, 255, 255), checkbox_box, 2)
-        if widgets["checkboxes"][checkbox_label]:
-            pg.draw.line(
-                surface,
-                (255, 255, 255),
-                (checkbox_box.left, checkbox_box.top),
-                (checkbox_box.right, checkbox_box.bottom),
-                2,
-            )
-            pg.draw.line(
-                surface,
-                (255, 255, 255),
-                (checkbox_box.left, checkbox_box.bottom),
-                (checkbox_box.right, checkbox_box.top),
-                2,
-            )
-        surface.blit(
-            widgets["checkbox_labels"][checkbox_label],
-            (checkbox_box.right + 5, checkbox_box.top),
-        )
-
-    for button_label in widgets["buttons"]:
-        surface.blit(
-            widgets["button_label"][button_label],
-            (
-                widgets["button_boxes"][button_label].x + 5,
-                widgets["button_boxes"][button_label].y + 5,
-            ),
-        )
-        pg.draw.rect(surface, (255, 255, 255), widgets["button_boxes"][button_label], 2)
-
-
-def draw_preview_image(widgets):
-    surface = widgets["string_drawing_surface"]
-    image = widgets["image"]
-    parameters = widgets["parameters"]
-    surface.fill(widgets["color_white"])
-    # Draw the selected image if available
-    if image:
-        image_surface = pg.image.fromstring(
-            image.convert("RGB").tobytes(), image.size, "RGB"
-        )
-        surface.blit(image_surface, (0, 0))
-
-    square_size = surface.get_width()
-    center = (square_size // 2, square_size // 2)
-    radius = parameters["Radius in Pixels"]
-
-    # Draw circle outline
-    pg.draw.circle(surface, (200, 200, 200), center, radius, 1)
-
-    # Draw pins
-    for pin in widgets["pins"]:
-        pg.draw.circle(surface, (100, 100, 100), pin, 2)
-
-
-def init_drawing(widgets):
-    surface = widgets["string_drawing_surface"]
-    parameters = widgets["parameters"]
-    radius = parameters["Radius in Pixels"]
-    square_size = widgets["image_square_size"]
-    pins = widgets["pins"]
-    center = (square_size // 2, square_size // 2)
-
-    surface.fill(widgets["color_white"])
-    # Draw circle outline
-    pg.draw.circle(surface, (200, 200, 200), center, radius, 1)
-
-    # Draw pins
-    for pin in pins:
-        pg.draw.circle(surface, (100, 100, 100), pin, 2)
-
-    pg.display.flip()
-
-
-def draw_string(widgets):
-    surface = widgets["string_drawing_surface"]
-    string_color = widgets["color_black"]
-    next_pin, line = find_best_next_pin(
-        widgets, widgets["current_index"], widgets["last_index"]
+    initial_checkboxes = {
+        "Remove Background": widgets["checkboxes"].get("Remove Background", False),
+        "denoise": widgets["checkboxes"].get("denoise", False),
+        "Canny edge detection": widgets["checkboxes"].get("Canny edge detection", False),
+        "Adaptive thresholding": widgets["checkboxes"].get("Adaptive thresholding", False),
+        "Global Thresholding": widgets["checkboxes"].get("Global Thresholding", False),
+        "Line Thickness": widgets["checkboxes"].get("Line Thickness", False),
+        "Use Processed Image Only": widgets["checkboxes"].get("Use Processed Image Only", False),
+        "Use Pin Index": widgets["checkboxes"].get("Use Pin Index", True),
+    }
+    widgets["checkboxes"] = initial_checkboxes
+    
+    # Initial pin calculation
+    widgets["pins"] = string_art_generator.calculate_pins(
+        widgets["image_square_size"],
+        initial_params["Radius in Pixels"], # Use actual int value
+        initial_params["Number of Pins"]    # Use actual int value
     )
-    if next_pin is not None:
-        widgets["last_index"] = widgets["current_index"]
-        widgets["current_index"] = widgets["pins"].index(next_pin)
-        update_image_array(widgets, line)
-        widgets["total_length_in_pixels"] += len(line)
-        widgets["steps"].append(next_pin)
-        widgets["steps_index"].append(widgets["current_index"])
-        draw_line(surface, line, string_color)
-    return next_pin
-
-
-def draw_information(widgets):
-    surface = widgets["information_surface"]
-    font = widgets["font"]
-    color = widgets["color_white"]
-    margin = widgets["image_square_size"] * 0.05
-    position = [margin, margin]
-    fontsize = font.size("1000000")
-    # Clear the surface
-    surface.fill((30, 30, 30))
-    surface.blit(
-        font.render(
-            "Diameter = "
-            + str(2 * widgets["parameters"]["Radius in milimeter"] / 1000)
-            + " meters",
-            True,
-            color,
-        ),
-        position,
+    
+    ui.create_config_widgets(
+        widgets,
+        select_image_callback=handle_select_image,
+        submit_parameters_callback=handle_submit_parameters,
+        initial_params=initial_params, # Pass the numeric initial params
+        initial_checkboxes=initial_checkboxes,
+        # calculate_pins_callback is not directly used by ui.create_config_widgets anymore for setting pins,
+        # but could be a generic callback if UI needed to trigger recalculation.
+        # For now, stringart.py handles pin calculation initially and on param changes.
+        calculate_pins_callback=lambda w: string_art_generator.calculate_pins(
+            w["image_square_size"], 
+            int(w["parameters"]["Radius in Pixels"]), 
+            int(w["parameters"]["Number of Pins"])
+        ), # This might be used by ui.handle_event
+        process_image_callback=handle_process_image # This is used by ui.handle_event for checkbox changes
     )
-    position[1] += fontsize[1] * 2
-    surface.blit(
-        font.render(
-            "Nails = " + str(widgets["parameters"]["Number of Pins"]), True, color
-        ),
-        position,
-    )
-    position[1] += fontsize[1] * 2
-    surface.blit(
-        font.render("Number of Lines = " + str(len(widgets["steps"]) - 1), True, color),
-        position,
-    )
-    position[1] += fontsize[1] * 2
-    surface.blit(
-        font.render(
-            "Total length = "
-            + str(
-                widgets["total_length_in_pixels"]
-                / widgets["parameters"]["Radius in Pixels"]
-                * widgets["parameters"]["Radius in milimeter"]
-                / 1000
-            )
-            + " meters",
-            True,
-            color,
-        ),
-        position,
-    )
-    position[1] += fontsize[1] * 2
-    for button_label in widgets["buttons"].keys():
-        widgets["button_boxes"][button_label] = pg.Rect(
-            position[0],
-            position[1],
-            font.size(button_label)[0] * 1.2,
-            font.size(button_label)[1] * 1.5,
-        )
-        widgets["button_label"][button_label] = font.render(button_label, True, color)
-        font_size = font.size(button_label)
-        surface.blit(
-            widgets["button_label"][button_label],
-            (
-                widgets["button_boxes"][button_label].x + 5,
-                widgets["button_boxes"][button_label].y + 5,
-            ),
-        )
-        pg.draw.rect(surface, color, widgets["button_boxes"][button_label], 2)
-        position[1] += font_size[1] * 2
-    new_size = (
-        int(widgets["image_square_size"] // 5),
-        int(widgets["image_square_size"] // 5),
-    )
-    image_position = [
-        surface.get_width() - new_size[0],
-        surface.get_height() - new_size[1],
-    ]
-    if widgets["processed_array"] is not None:
-        image = Image.fromarray(widgets["processed_array"])
-        image = image.resize(new_size, Image.LANCZOS)
-        image_surface = pg.image.fromstring(
-            image.convert("RGB").tobytes(), image.size, "RGB"
-        )
-        surface.blit(image_surface, image_position)
-        image_position[0] -= new_size[0]
-    if widgets["init_array"] is not None:
-        image = Image.fromarray(widgets["init_array"])
-        image = image.resize(new_size, Image.LANCZOS)
-        image_surface = pg.image.fromstring(
-            image.convert("RGB").tobytes(), image.size, "RGB"
-        )
-        surface.blit(image_surface, image_position)
+
+# --- Main Application Setup ---
+def init_app_widgets():
+    """Initializes the main application widgets dictionary."""
+    # Initialize UI specific parts first
+    widgets = ui.init_widgets() # This sets up surfaces, font, basic UI structure from ui.py
+
+    # Application specific state and default parameters
+    widgets["state"] = State.CONFIGURING
+    widgets["image_pil"] = None # Holds the current PIL image for processing/display
+    widgets["image_original_pil"] = None # Holds the original selected PIL image
+    
+    # Pygame surfaces for display - will be populated after image processing
+    widgets["image"] = None # Main preview (pygame.Surface)
+    widgets["display_init_surface"] = None # Thumbnail for init_array (pygame.Surface)
+    widgets["display_processed_surface"] = None # Thumbnail for processed_array (pygame.Surface)
+
+    widgets["init_array"] = None # Numpy array for string algorithm
+    widgets["processed_array"] = None # Numpy array for edges/visuals
+    
+    widgets["decay"] = 1.5 # Example: if needed by update_image_array logic (currently not passed)
+    widgets["current_index"] = 0
+    widgets["last_index"] = None
+    widgets["pins"] = []
+    widgets["use_pin_index"] = True # Default, will be updated by checkbox
+    widgets["steps"] = [] # List of (x,y) pin coordinates for string path
+    widgets["steps_index"] = [] # List of pin indices for string path
+    widgets["total_length_in_pixels"] = 0
+    widgets["server"] = None
+
+    # Initialize parameters and checkboxes with defaults
+    # These are set up in _setup_config_ui, which is called next in main()
+    widgets["parameters"] = {} 
+    widgets["checkboxes"] = {}
+    widgets["defaults"] = {}
 
 
-def draw_serving(widgets):
-    surface = widgets["information_surface"]
-    font = widgets["font"]
-    color = widgets["color_white"]
-    margin = widgets["image_square_size"] * 0.05
-    position = [margin, margin]
-    fontsize = font.size("1000000")
-    server = widgets["server"]
+    # Initial call to setup config UI specific parameters and checkboxes
+    # This will populate widgets["parameters"], widgets["checkboxes"], widgets["pins"]
+    # and then call ui.create_config_widgets
+    # _setup_config_ui(widgets) # Called from main after widgets is created
 
-    # Clear the surface
-    surface.fill((30, 30, 30))
-    if server is None:
-        surface.blit(font.render("Server is not running", True, color), position)
-    else:
-        surface.blit(font.render(server.get_state(), True, color), position)
-        position[1] += fontsize[1] * 2
-        surface.blit(
-            font.render(
-                "Total Number of Lines = " + str(len(widgets["steps"]) - 1), True, color
-            ),
-            position,
-        )
-        position[1] += fontsize[1] * 2
-        surface.blit(
-            font.render(
-                "Coordinates left to be sent = " + str(server.get_data_length()),
-                True,
-                color,
-            ),
-            position,
-        )
-        position[1] += fontsize[1] * 2
-
-
-def handle_event(widgets, event):
-    square_size = widgets["image_square_size"]
-    if event.type == pg.MOUSEBUTTONDOWN:
-        # Iterate over a copy of the keys to avoid modifying the dictionary during iteration
-        for button_label in list(widgets["buttons"].keys()):
-            if widgets["button_boxes"][button_label].collidepoint(
-                (event.pos[0] - square_size, event.pos[1])
-            ):
-                widgets["buttons"][button_label](widgets)
-        for box in widgets["input_boxes"]:
-            if box.collidepoint((event.pos[0] - square_size, event.pos[1])):
-                widgets["active_box"] = box
-                break
-        for checkbox_label in list(widgets["checkboxes"].keys()):
-            if widgets["checkbox_boxes"][checkbox_label].collidepoint(
-                (event.pos[0] - square_size, event.pos[1])
-            ):
-                widgets["checkboxes"][checkbox_label] = not widgets["checkboxes"][
-                    checkbox_label
-                ]
-                process_image(widgets)
-                break
-    elif event.type == pg.KEYDOWN:
-        if widgets.get("active_box"):
-            param_name = get_param_name(widgets)
-            if event.key == pg.K_RETURN:
-                widgets["active_box"] = None
-            elif event.key == pg.K_BACKSPACE:
-                current_value = str(widgets["parameters"][param_name])
-                widgets["parameters"][param_name] = (
-                    int(current_value[:-1]) if current_value[:-1] else 0
-                )
-                if param_name == "Number of Pins" or param_name == "Radius in Pixels":
-                    widgets["pins"] = calculate_pins(
-                        widgets["image_square_size"],
-                        widgets["parameters"]["Radius in Pixels"],
-                        widgets["parameters"]["Number of Pins"],
-                    )
-                    process_image(widgets)
-            elif event.key == pg.K_TAB:
-                move_to_next_box(widgets)
-            elif event.unicode.isdigit():
-                current_value = str(widgets["parameters"][param_name])
-                widgets["parameters"][param_name] = int(current_value + event.unicode)
-                if param_name == "Number of Pins" or param_name == "Radius in Pixels":
-                    widgets["pins"] = calculate_pins(
-                        widgets["image_square_size"],
-                        widgets["parameters"]["Radius in Pixels"],
-                        widgets["parameters"]["Number of Pins"],
-                    )
-                    process_image(widgets)
-
+    return widgets
 
 def main():
     pg.init()
-    widgets = init_widgets()
+    widgets = init_app_widgets() # Initialize all widget data
+    
+    # This will populate parameters, checkboxes, pins, and then call ui.create_config_widgets
+    _setup_config_ui(widgets) 
+                                 
     screen = widgets["window"]
+    string_drawing_surf = widgets["string_drawing_surface"]
+    info_surf = widgets["information_surface"]
     square_size = widgets["image_square_size"]
-    create_config_widgets(widgets)
+
+    clock = pg.time.Clock()
+    cursor_blink_timer = 0
+    blink_interval = 500  # milliseconds
 
     while widgets["state"] != State.QUITING:
+        dt = clock.tick(60) # Aim for 60 FPS
+        cursor_blink_timer += dt
+        if cursor_blink_timer >= blink_interval:
+            widgets["cursor_visible"] = not widgets["cursor_visible"]
+            cursor_blink_timer %= blink_interval
+
         for event in pg.event.get():
-            if event.type == pg.QUIT:
-                widgets["state"] = State.QUITING
-            handle_event(widgets, event)
+            # Pass event to UI handler first. It will call handle_main_event if not processed.
+            # ui.handle_event needs the calculate_pins_callback and process_image_callback
+            # for when parameter text inputs or checkboxes are changed.
+            ui.handle_event(widgets, event, 
+                            process_image_callback=handle_process_image,
+                            calculate_pins_callback=handle_recalculate_pins_and_process_image, # For when num pins/radius changes
+                            main_event_handler_callback=handle_main_event)
+
         if widgets["state"] == State.SERVING and widgets["server"] is not None:
             widgets["server"].handle_events()
+
+        # --- Drawing logic based on state ---
+        screen.fill((50, 50, 50)) # Background for the whole window
+
         match widgets["state"]:
             case State.CONFIGURING:
-                draw_config_widgets(widgets)
-                screen.blit(widgets["information_surface"], (square_size, 0))
-                draw_preview_image(widgets)
-                screen.blit(widgets["string_drawing_surface"], (0, 0))
-                pg.display.flip()
+                ui.draw_config_widgets(widgets)
+                ui.draw_preview_image(widgets) # Uses widgets["image"] (pygame surface) and widgets["pins"]
             case State.DRAWING:
-                next_pin = draw_string(widgets)
-                if next_pin is None:
-                    stop_drawing(widgets)
-                max_lines = widgets["parameters"]["Number of Lines"]
-                if (len(widgets["steps"]) - 1) % max_lines == 0:
-                    pause_drawing(widgets)
-                screen.blit(widgets["string_drawing_surface"], (0, 0))
-                draw_information(widgets)
-                screen.blit(
-                    widgets["information_surface"], (widgets["image_square_size"], 0)
-                )
-                pg.display.flip()
+                # Calculate next line segment
+                next_pin_coord, line_pixels, next_pin_idx = string_art_generator.generate_next_string_segment(widgets)
+                
+                if next_pin_coord and line_pixels and next_pin_idx is not None:
+                    # Update state based on new segment
+                    widgets["last_index"] = widgets["current_index"]
+                    widgets["current_index"] = next_pin_idx
+                    widgets["steps"].append(next_pin_coord)
+                    widgets["steps_index"].append(next_pin_idx)
+                    widgets["total_length_in_pixels"] += len(line_pixels)
+                    
+                    # Draw the line segment on the string_drawing_surface
+                    # Assuming ui.py has a function like this or adapt ui.init_drawing or a new one.
+                    # For now, directly draw using pg.draw.lines for simplicity if line_pixels is a list of points.
+                    # Or, if draw_line from original stringart is now in ui.py:
+                    if hasattr(ui, 'draw_line_on_surface'): # Check if helper exists
+                        ui.draw_line_on_surface(string_drawing_surf, line_pixels, widgets["color_black"])
+                    else: # Fallback to basic pygame line drawing for each segment
+                        if len(line_pixels) > 1: # Need at least 2 points for lines
+                             # pg.draw.lines(string_drawing_surf, widgets["color_black"], False, line_pixels, 1)
+                             # The line_pixels from calculate_line_darkness is a list of individual pixels.
+                             # So, we need to draw them point by point.
+                             for p_x, p_y in line_pixels:
+                                if 0 <= p_x < square_size and 0 <= p_y < square_size:
+                                     string_drawing_surf.set_at((p_x, p_y), widgets["color_black"])
+                else:
+                    # No more lines to draw or error
+                    print("Drawing finished or no suitable next pin found.")
+                    handle_stop_drawing(widgets) # Transition to serving or allow reset
+
+                # Check for pause condition (e.g., max lines)
+                # Original had: if (len(widgets["steps"]) - 1) % widgets["parameters"].get("Number of Lines", float('inf')) == 0:
+                # This implies Number of Lines is a batch size for pausing.
+                # Let's use a more direct interpretation if Number of Lines means total lines.
+                if (len(widgets["steps"]) -1) >= widgets["parameters"].get("Number of Lines", float('inf')):
+                    print(f"Reached target number of lines: {widgets['parameters']['Number of Lines']}.")
+                    handle_stop_drawing(widgets) # Or handle_pause_drawing(widgets) if it's a batch
+                
+                # Update and draw information panel
+                ui.draw_information(widgets)
+
             case State.PAUSING:
-                screen.blit(widgets["string_drawing_surface"], (0, 0))
-                draw_information(widgets)
-                screen.blit(
-                    widgets["information_surface"], (widgets["image_square_size"], 0)
-                )
-                pg.display.flip()
+                # Simply draw the information panel, string surface is static
+                ui.draw_information(widgets)
             case State.SERVING:
-                draw_serving(widgets)
-                screen.blit(
-                    widgets["information_surface"], (widgets["image_square_size"], 0)
-                )
-                pg.display.flip()
+                ui.draw_serving(widgets)
             case State.QUITING:
-                if widgets["server"] is not None:
-                    widgets["server"].stop()
+                pass # Loop will terminate
 
-    if widgets["image"]:
-        print(len(list(widgets["image"].getdata())))
+        # Blit surfaces to the main screen
+        if widgets["state"] != State.QUITING:
+            if widgets["state"] == State.CONFIGURING or widgets["state"] == State.DRAWING or widgets["state"] == State.PAUSING:
+                screen.blit(string_drawing_surf, (0, 0))
+            
+            # Information surface is common to all states except maybe quiting fully
+            screen.blit(info_surf, (square_size, 0))
+            pg.display.flip()
 
+    # Cleanup
+    if widgets.get("server"):
+        widgets["server"].stop()
+    pg.quit()
 
 if __name__ == "__main__":
     main()
