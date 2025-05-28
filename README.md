@@ -1,7 +1,7 @@
 # StringArt
 
-![](https://github.com/LesageAdrien/StringArt/blob/main/StringArtMeruem.gif)
-![](https://github.com/LesageAdrien/StringArt/blob/main/Meruem.png)
+![](https://github.com/whf-gh/StringArt/blob/main/StringArtMeruem.gif)
+![](https://github.com/whf-gh/StringArt/blob/main/Meruem.png)
 
 ## Introduction
 
