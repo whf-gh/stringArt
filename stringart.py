@@ -100,11 +100,11 @@ def handle_process_image(widgets):
     # Update Pygame surfaces for UI display
     widgets["image"] = pil_to_pygame_surface(widgets["image_pil"])
     if widgets["init_array"] is not None:
-        widgets["display_init_surface"] = pil_to_pygame_surface(Image.fromarray(widgets["init_array"]))
+        widgets["display_init_surface"] = pil_to_pygame_surface(Image.fromarray(widgets["init_array"]).resize((widgets["image_info_size"], widgets["image_info_size"]), Image.LANCZOS))
     else:
         widgets["display_init_surface"] = None
     if widgets["processed_array"] is not None:
-        widgets["display_processed_surface"] = pil_to_pygame_surface(Image.fromarray(widgets["processed_array"]))
+        widgets["display_processed_surface"] = pil_to_pygame_surface(Image.fromarray(widgets["processed_array"]).resize((widgets["image_info_size"], widgets["image_info_size"]), Image.LANCZOS))
     else:
         widgets["display_processed_surface"] = None
         
@@ -229,6 +229,7 @@ def handle_pause_drawing(widgets):
     """Callback to pause drawing."""
     if widgets["state"] == State.DRAWING: # Only pause if currently drawing
         widgets["state"] = State.PAUSING
+        ui.add_resume_button(widgets, handle_resume_drawing)
         # ui.create_information_widgets should ideally handle adding/removing Resume button
         # For now, let's assume it's handled by redrawing the info panel or specific button logic in ui.py
         # If not, we might need: ui.add_resume_button(widgets, handle_resume_drawing)
@@ -237,8 +238,7 @@ def handle_resume_drawing(widgets):
     """Callback to resume drawing."""
     if widgets["state"] == State.PAUSING: # Only resume if paused
         widgets["state"] = State.DRAWING
-        # ui.create_information_widgets should handle removing Resume and ensuring Pause is there
-        # If not, we might need: ui.remove_resume_button(widgets)
+        ui.remove_resume_button(widgets)
 
 
 def handle_back_to_config(widgets):
@@ -423,9 +423,9 @@ def main():
                 # Original had: if (len(widgets["steps"]) - 1) % widgets["parameters"].get("Number of Lines", float('inf')) == 0:
                 # This implies Number of Lines is a batch size for pausing.
                 # Let's use a more direct interpretation if Number of Lines means total lines.
-                if (len(widgets["steps"]) -1) >= widgets["parameters"].get("Number of Lines", float('inf')):
+                if (len(widgets["steps"]) -1) % widgets["parameters"].get("Number of Lines", float('inf')) == 0:
                     print(f"Reached target number of lines: {widgets['parameters']['Number of Lines']}.")
-                    handle_stop_drawing(widgets) # Or handle_pause_drawing(widgets) if it's a batch
+                    handle_pause_drawing(widgets) # Or handle_pause_drawing(widgets) if it's a batch
                 
                 # Update and draw information panel
                 ui.draw_information(widgets)

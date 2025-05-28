@@ -18,6 +18,7 @@ def init_widgets():
     widgets["window"] = pg.display.set_mode(scrsize)
     pg.display.set_caption("StringArtProcess")
     widgets["image_square_size"] = int(square_size)
+    widgets["image_info_size"] = int(square_size) // 5
     widgets["string_drawing_surface"] = pg.surface.Surface(
         (square_size, square_size), pg.SRCALPHA
     )
@@ -143,16 +144,16 @@ def create_config_widgets(widgets, select_image_callback, submit_parameters_call
     # The select_image_callback is used for the "Select Image" button.
     # These callbacks will be connected by stringart.py to its own orchestrator functions
     # which in turn will call the respective functions from image_processing.py.
+    # stringart.py will be responsible for implementing these callbacks and calling the
+    # functions from image_processing.py, then updating the widgets dictionary,
+    # and finally telling the UI to redraw if necessary.
     pass # No direct change here, but noting the responsibility of stringart.py
 
 
 def create_information_widgets(widgets, back_callback, stop_callback, pause_callback, resume_callback):
-        params["Radius in Pixels"],
-        params["Number of Pins"],
-    )
-
-
-def create_information_widgets(widgets, back_callback, stop_callback, pause_callback, resume_callback):
+    """
+    Sets up the widgets for the information screen, including buttons for Back, Stop, Pause, and Resume.
+    """
     buttons = {
         "Back": back_callback,
         "Stop": stop_callback,
@@ -164,6 +165,7 @@ def create_information_widgets(widgets, back_callback, stop_callback, pause_call
     widgets["buttons"] = buttons
     widgets["button_boxes"] = {}
     widgets["button_label"] = {}
+
 
 def create_serving_widgets(widgets, back_callback, reset_callback):
     buttons = {
@@ -382,13 +384,9 @@ def draw_information(widgets):
         pg.draw.rect(surface, color, widgets["button_boxes"][button_label], 2)
         position[1] += font_size_btn[1] * 2 # Use renamed variable
 
-    new_size = (
-        int(widgets["image_square_size"] // 5),
-        int(widgets["image_square_size"] // 5),
-    )
     image_position = [
-        surface.get_width() - new_size[0],
-        surface.get_height() - new_size[1],
+        surface.get_width() - widgets["image_info_size"],
+        surface.get_height() - widgets["image_info_size"],
     ]
     # 'processed_array' and 'init_array' are numpy arrays.
     # For display, they need to be converted to PIL Images then to Pygame surfaces.
@@ -401,7 +399,7 @@ def draw_information(widgets):
 
     if display_processed_surface:
         surface.blit(display_processed_surface, image_position)
-        image_position[0] -= new_size[0] # Adjust for next image
+        image_position[0] -= widgets["image_info_size"] # Adjust for next image
 
     if display_init_surface:
         surface.blit(display_init_surface, image_position)
@@ -528,3 +526,23 @@ def handle_event(widgets, event, process_image_callback, calculate_pins_callback
     
     # If event was not handled by UI elements, pass to main event handler
     main_event_handler_callback(widgets, event)
+
+def add_resume_button(widgets, resume_callback):
+    """
+    Adds a 'Resume' button to the widgets' information panel, if not already present.
+    This is used when the drawing is paused, to allow resuming.
+    """
+    if "buttons" not in widgets:
+        widgets["buttons"] = {}
+    if "Resume" not in widgets["buttons"]:
+        widgets["buttons"]["Resume"] = resume_callback
+    # The button_boxes and button_label will be rebuilt on next draw_information call
+
+def remove_resume_button(widgets):
+    """
+    Removes the 'Resume' button from the widgets' buttons dictionary, if present.
+    This is used when resuming drawing from a paused state.
+    """
+    if "buttons" in widgets and "Resume" in widgets["buttons"]:
+        widgets["buttons"].pop("Resume")
+    # The button_boxes and button_label will be rebuilt on next draw_information call
