@@ -200,7 +200,7 @@ def handle_stop_drawing(widgets):
             
     widgets["server"] = Server(data_list, "0.0.0.0", 65432)
     ui.create_serving_widgets(widgets, 
-                              back_callback=lambda w: ui.create_information_widgets(w, handle_back_to_config, handle_stop_drawing, handle_pause_drawing, handle_resume_drawing), # Go back to info screen
+                              back_callback=handle_back_to_drawing, # Go back to info screen
                               reset_callback=handle_reset_to_config) # Reset could go to full config
 
 def handle_reset_to_config(widgets):
@@ -214,11 +214,12 @@ def handle_reset_to_config(widgets):
     widgets["current_index"] = 0
     widgets["last_index"] = None
     # Potentially reset image arrays if needed, or keep them for user
-    # widgets["image_pil"] = None
+    widgets["image_pil"] = None
     # widgets["image_original_pil"] = None
     # widgets["image"] = None 
     # widgets["init_array"] = None
     # widgets["processed_array"] = None
+    handle_process_image(widgets)
     
     widgets["state"] = State.CONFIGURING
     # Re-initialize config widgets with default parameters and callbacks
@@ -249,6 +250,20 @@ def handle_back_to_config(widgets):
     widgets["state"] = State.CONFIGURING
     _setup_config_ui(widgets)
 
+
+def handle_back_to_drawing(widgets):
+    """Callback to go back to drawing state from serving."""
+    if widgets.get("server"): # Stop server if running
+        widgets["server"].stop()
+        widgets["server"] = None
+    widgets["state"] = State.DRAWING
+    # Re-initialize drawing state, this will reset steps and indices
+    handle_submit_parameters(widgets) # This will set up the initial steps and indices
+    ui.create_information_widgets(widgets, 
+                                  back_callback=handle_back_to_config, 
+                                  stop_callback=handle_stop_drawing, 
+                                  pause_callback=handle_pause_drawing, 
+                                  resume_callback=handle_resume_drawing)
 
 def _setup_config_ui(widgets):
     """Helper to initialize or re-initialize config UI elements and parameters."""
@@ -440,8 +455,8 @@ def main():
 
         # Blit surfaces to the main screen
         if widgets["state"] != State.QUITING:
-            if widgets["state"] == State.CONFIGURING or widgets["state"] == State.DRAWING or widgets["state"] == State.PAUSING:
-                screen.blit(string_drawing_surf, (0, 0))
+            #if widgets["state"] == State.CONFIGURING or widgets["state"] == State.DRAWING or widgets["state"] == State.PAUSING:
+            screen.blit(string_drawing_surf, (0, 0))
             
             # Information surface is common to all states except maybe quiting fully
             screen.blit(info_surf, (square_size, 0))
