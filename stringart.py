@@ -249,6 +249,7 @@ def handle_back_to_config(widgets):
         widgets["server"] = None
     widgets["state"] = State.CONFIGURING
     _setup_config_ui(widgets)
+    handle_process_image(widgets)
 
 
 def handle_back_to_drawing(widgets):
@@ -259,6 +260,7 @@ def handle_back_to_drawing(widgets):
     widgets["state"] = State.DRAWING
     # Re-initialize drawing state, this will reset steps and indices
     handle_submit_parameters(widgets) # This will set up the initial steps and indices
+    handle_process_image(widgets)
     ui.create_information_widgets(widgets, 
                                   back_callback=handle_back_to_config, 
                                   stop_callback=handle_stop_drawing, 

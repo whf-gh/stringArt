@@ -1,0 +1,5 @@
+pygame
+rembg
+Pillow
+numpy
+opencv-python

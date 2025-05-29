@@ -1,6 +1,7 @@
 import math
 import copy
 import random
+from collections import Counter # Added for pin usage tracking
 from image_processing import calculate_line_darkness, update_image_array
 
 # Originally from stringart.py
@@ -39,7 +40,7 @@ def to_real_coordinates(pin_coords_tuples, square_size, radius_pixel, radius_mil
 # Originally from stringart.py
 # Depends on calculate_line_darkness from image_processing.py
 def find_best_next_pin(pins_coords, init_array, current_pin_index, last_pin_index, 
-                         current_steps_pins, shortest_line_pixels, max_pin_usage):
+                         current_steps_indices, shortest_line_pixels, max_pin_usage):
     """
     Finds the best next pin to draw a line to, based on line darkness and constraints.
     Args:
@@ -47,51 +48,40 @@ def find_best_next_pin(pins_coords, init_array, current_pin_index, last_pin_inde
         init_array: Numpy array of the image being processed.
         current_pin_index: Index of the current pin.
         last_pin_index: Index of the previously connected pin (can be None).
-        current_steps_pins: List of pin (x,y) coordinates already used in sequence.
+        current_steps_indices: List of pin INDICES already used in sequence.
         shortest_line_pixels: Minimum length of a line in pixels.
         max_pin_usage: Maximum number of times a single pin can be part of a line.
     Returns:
-        Tuple (best_pin_coord, best_line_pixels) or (None, None) if no suitable pin is found.
+        Tuple (best_pin_index, best_line_pixels) or (None, None) if no suitable pin is found.
     """
-    best_darkness = 255  # Lower is better
+    best_darkness = 255.0  # Lower is better, ensure float for comparison with new calculate_line_darkness
     best_line_pixels = None
-    best_pin_coord = None
+    best_pin_index = None # Return index now
     
     current_pin_coord = pins_coords[current_pin_index]
-    
-    # Create a mutable copy of all pin coordinates to select from
-    target_pin_coords = list(pins_coords) 
+    pin_usage_counts = Counter(current_steps_indices)
 
-    # Exclude the current pin itself
-    # Popping by index needs care if list is modified. Better to build a list of candidates.
-    candidate_pins = []
-    for i, pin_coord in enumerate(target_pin_coords):
+    candidate_indices = []
+    for i in range(len(pins_coords)):
         if i == current_pin_index:
             continue
         if last_pin_index is not None and i == last_pin_index: # Avoid going immediately back
             continue
-        candidate_pins.append(pin_coord)
-
-    # Further filtering based on usage (complex conditions from original):
-    # The original logic for 'steps' and removing pins already connected to current_pin in 'steps'
-    # is tricky. Let's simplify: we primarily check against max_pin_usage for any candidate.
-    # A more direct interpretation of "remove used steps" from original:
-    # "target_pins" were reduced by removing pins adjacent to ANY instance of current_pin in steps.
-    # This seems too restrictive. Let's focus on max_pin_usage and not reusing immediate neighbors if possible.
-    
-    # Consider a random subset for performance, as in original
-    # If many candidates, sample randomly. Otherwise, use all.
-    if len(candidate_pins) > 30:
-        sampled_candidate_pins = random.sample(candidate_pins, 30)
-    else:
-        sampled_candidate_pins = candidate_pins
-
-    for prospective_pin_coord in sampled_candidate_pins:
-        # Check max_pin_usage: Count how many times prospective_pin_coord appears in current_steps_pins
-        # Note: current_steps_pins contains coordinates, not indices.
-        if current_steps_pins.count(prospective_pin_coord) >= max_pin_usage:
+        if pin_usage_counts[i] >= max_pin_usage:
             continue
+        candidate_indices.append(i)
 
+    # Consider a random subset for performance if many candidates
+    # This sampling logic might need adjustment based on performance after optimization
+    if len(candidate_indices) > 30: # Original code sampled 30
+        sampled_candidate_indices = random.sample(candidate_indices, 30)
+    else:
+        sampled_candidate_indices = candidate_indices
+
+    for prospective_pin_index in sampled_candidate_indices:
+        prospective_pin_coord = pins_coords[prospective_pin_index]
+
+        # calculate_line_darkness is already optimized
         darkness, line_pixels = calculate_line_darkness(
             init_array,
             int(current_pin_coord[0]), int(current_pin_coord[1]),
@@ -101,9 +91,9 @@ def find_best_next_pin(pins_coords, init_array, current_pin_index, last_pin_inde
         if darkness < best_darkness and len(line_pixels) >= shortest_line_pixels:
             best_darkness = darkness
             best_line_pixels = line_pixels
-            best_pin_coord = prospective_pin_coord
+            best_pin_index = prospective_pin_index # Store index
             
-    return best_pin_coord, best_line_pixels
+    return best_pin_index, best_line_pixels
 
 # Originally draw_string from stringart.py, now refactored
 # Depends on find_best_next_pin (above) and update_image_array (from image_processing)
@@ -120,8 +110,7 @@ def generate_next_string_segment(widgets):
             - "last_index": Index of the last pin connected (can be None).
             - "init_array": Numpy array of the image (modified by update_image_array).
             - "parameters": Dictionary of settings like "Shortest Line in Pixels", "Max Pin Usage".
-            - "steps": List of (x,y) pin coordinates already connected.
-            - "steps_index": List of pin indices already connected.
+            - "steps_index": List of pin indices already connected. (Changed from "steps")
             - "processed_array": (Optional) Numpy array of a pre-processed image.
             - "decay": (Optional) Factor for how much lines lighten the image.
 
@@ -134,43 +123,43 @@ def generate_next_string_segment(widgets):
     pins = widgets["pins"]
     current_index = widgets["current_index"]
     last_index = widgets["last_index"]
-    init_array = widgets["init_array"] # This will be modified by update_image_array
+    init_array = widgets["init_array"] 
     parameters = widgets["parameters"]
-    steps = widgets["steps"] # List of pin coordinates
-    # steps_index = widgets["steps_index"] # List of pin indices
+    # steps = widgets["steps"] # List of pin coordinates - no longer passed directly for usage counting
+    steps_indices = widgets["steps_index"] # List of pin indices - THIS IS PASSED NOW
 
-    shortest_line_pixels = parameters.get("Shortest Line in Pixels", 0)
-    max_pin_usage = parameters.get("Max Pin Usage", float('inf')) # Default to no limit if not specified
+    # Ensure parameters are integers
+    shortest_line_pixels_param = parameters.get("Shortest Line in Pixels", 0)
+    try:
+        shortest_line_pixels = int(shortest_line_pixels_param)
+    except ValueError:
+        shortest_line_pixels = 0 # Default or log error
+    
+    max_pin_usage_param = parameters.get("Max Pin Usage", float('inf'))
+    try:
+        # Check if it's already a number (like float('inf') or int from automated setup)
+        if isinstance(max_pin_usage_param, (int, float)):
+             max_pin_usage = int(max_pin_usage_param)
+        else: # Try to convert from string if it's from UI
+             max_pin_usage = int(max_pin_usage_param)
+    except ValueError:
+        max_pin_usage = float('inf') # Default or log error
 
-    # Call find_best_next_pin
-    # find_best_next_pin expects: pins_coords, init_array, current_pin_index, last_pin_index, 
-    #                            current_steps_pins, shortest_line_pixels, max_pin_usage
-    next_pin_coord, line_pixel_coords = find_best_next_pin(
+
+    # Call find_best_next_pin with steps_indices
+    next_pin_index, line_pixel_coords = find_best_next_pin(
         pins, init_array, current_index, last_index,
-        steps, shortest_line_pixels, max_pin_usage
+        steps_indices, shortest_line_pixels, max_pin_usage # Pass steps_indices
     )
 
-    if next_pin_coord is not None and line_pixel_coords:
-        # If a next pin is found, update the image array
-        # update_image_array modifies widgets["init_array"] directly or returns the modified array.
-        # Current signature is update_image_array(widgets, line), it modifies widgets['init_array']
-        update_image_array(widgets, line_pixel_coords) # Pass the whole widgets dict as it expects it
+    if next_pin_index is not None and line_pixel_coords: # Check next_pin_index
+        update_image_array(widgets, line_pixel_coords)
 
-        # Determine the index of the next_pin_coord
-        try:
-            next_pin_index = pins.index(next_pin_coord)
-        except ValueError:
-            # This should not happen if next_pin_coord comes from the pins list
-            return None, None, None 
-
-        # The caller (stringart.py) will be responsible for:
-        # - Updating widgets["last_index"] = current_index
-        # - Updating widgets["current_index"] = next_pin_index
-        # - Appending next_pin_coord to widgets["steps"]
-        # - Appending next_pin_index to widgets["steps_index"]
-        # - Updating widgets["total_length_in_pixels"] += len(line_pixel_coords)
-        # - Handling the actual drawing on the Pygame surface.
-        
+        # Get next_pin_coord from next_pin_index
+        next_pin_coord = pins[next_pin_index] 
+                                          
+        # The rest of the function (caller responsibilities) remains the same
+        # No more pins.index() lookup needed.
         return next_pin_coord, line_pixel_coords, next_pin_index
     else:
         return None, None, None

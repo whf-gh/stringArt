@@ -3,6 +3,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 from tkinter import Tk, filedialog
 from rembg import remove
+from skimage import draw as skidraw # Added for optimized line calculation
 
 # Originally from stringart.py
 def calculate_line_darkness(img_array, x1, y1, x2, y2):
@@ -20,39 +21,33 @@ def calculate_line_darkness(img_array, x1, y1, x2, y2):
     pixels = []
     pixel_sum = 0
 
-    dx = abs(x2 - x1)
-    dy = abs(y2 - y1)
-    x_step = 1 if x1 < x2 else -1
-    y_step = 1 if y1 < y2 else -1
-    x = x1
-    y = y1
+    # skimage.draw.line uses (row, col) which corresponds to (y, x)
+    rr, cc = skidraw.line(int(y1), int(x1), int(y2), int(x2))
 
-    if dx > dy:
-        error = dx / 2
-        while x != x2 + x_step:
-            if 0 <= x < img_array.shape[1] and 0 <= y < img_array.shape[0]:
-                pixel_sum += img_array[y, x]
-                pixels.append((x, y))
-            error -= dy
-            if error < 0:
-                y += y_step
-                error += dx
-            x += x_step
-    else:
-        error = dy / 2
-        while y != y2 + y_step:
-            if 0 <= x < img_array.shape[1] and 0 <= y < img_array.shape[0]:
-                pixel_sum += img_array[y, x]
-                pixels.append((x, y))
-            error -= dx
-            if error < 0:
-                x += x_step
-                error += dy
-            y += y_step
+    # Ensure coordinates are within image bounds
+    height, width = img_array.shape
+    valid_indices = (rr >= 0) & (rr < height) & (cc >= 0) & (cc < width)
+    
+    rr_valid = rr[valid_indices]
+    cc_valid = cc[valid_indices]
 
-    if not pixels: # Avoid division by zero if line is outside bounds or has zero length
-        return 255, []
-    return pixel_sum / len(pixels), pixels
+    if rr_valid.size == 0: # No pixels of the line are within the image
+        return 255.0, []
+
+    # Extract pixel values along the line
+    # img_array values are typically uint8. Summing them can exceed 255.
+    # np.sum will use a larger dtype for accumulation by default (e.g., np.int64 for uint8).
+    pixel_sum = np.sum(img_array[rr_valid, cc_valid])
+    
+    num_pixels = rr_valid.size
+    average_darkness = pixel_sum / num_pixels if num_pixels > 0 else 255.0
+
+    # Create list of (x,y) coordinates (ensure they are Python ints for consistency if needed by other parts)
+    # The original function returned a list of tuples: pixels.append((x, y))
+    line_pixels = list(zip(cc_valid.tolist(), rr_valid.tolist()))
+
+    return average_darkness, line_pixels
+
 
 # Originally from stringart.py
 def update_image_array(widgets, line): # widgets here is the main dictionary

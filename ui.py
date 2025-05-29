@@ -161,7 +161,7 @@ def create_information_widgets(widgets, back_callback, stop_callback, pause_call
         "Resume": resume_callback,
     }
     widgets["input_boxes"] = []
-    widgets["checkboxes"] = {}
+    #widgets["checkboxes"] = {}
     widgets["buttons"] = buttons
     widgets["button_boxes"] = {}
     widgets["button_label"] = {}
@@ -173,7 +173,7 @@ def create_serving_widgets(widgets, back_callback, reset_callback):
         "Reset": reset_callback,
     }
     widgets["input_boxes"] = []
-    widgets["checkboxes"] = {}
+    #widgets["checkboxes"] = {}
     widgets["buttons"] = buttons
     widgets["button_boxes"] = {}
     widgets["button_label"] = {}
