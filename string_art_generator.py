@@ -93,7 +93,7 @@ def find_best_next_pin(pins_coords, init_array, current_pin_index, last_pin_inde
             best_line_pixels = line_pixels
             best_pin_index = prospective_pin_index # Store index
             
-    return best_pin_index, best_line_pixels
+    return best_pin_index, best_line_pixels, best_darkness
 
 # Originally draw_string from stringart.py, now refactored
 # Depends on find_best_next_pin (above) and update_image_array (from image_processing)
@@ -147,7 +147,8 @@ def generate_next_string_segment(widgets):
 
 
     # Call find_best_next_pin with steps_indices
-    next_pin_index, line_pixel_coords = find_best_next_pin(
+    # It returns: best_pin_index, best_line_pixels, best_darkness (darkness is not used here)
+    next_pin_index, line_pixel_coords, _ = find_best_next_pin(
         pins, init_array, current_index, last_index,
         steps_indices, shortest_line_pixels, max_pin_usage # Pass steps_indices
     )

@@ -3,3 +3,4 @@ rembg
 Pillow
 numpy
 opencv-python
+pytest
