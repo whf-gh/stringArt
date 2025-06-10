@@ -90,3 +90,15 @@ The application includes functionality, originally in `net_server.py`, to act as
 3.  A client application can then connect to this address to receive the string art data. The data is printed to the server's console and sent to the client. This functionality can be modified to save the data to a file or forward it to another process.
 
 This integrated approach means you do not need to run a separate `net_server.py` script. The main application handles the serving of data when configured to do so.
+
+## Running Tests
+
+To run the automated tests, ensure you have the necessary dependencies installed:
+```bash
+pip install -r requirements.txt
+```
+Then, navigate to the root directory of the project and run pytest:
+```bash
+python3 -m pytest tests/
+```
+This will discover and run all tests in the `tests` directory.
