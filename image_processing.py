@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw
-from tkinter import Tk, filedialog
+# from tkinter import Tk, filedialog # Moved into select_image
 from rembg import remove
 from skimage import draw as skidraw # Added for optimized line calculation
 
@@ -77,18 +77,28 @@ def update_image_array(widgets, line): # widgets here is the main dictionary
 
 
 # Originally from ui.py, now in image_processing.py
-def select_image(image_square_size, current_image_path=None):
+def select_image(image_square_size, current_image_path=None, test_file_path=None):
     """
-    Opens a file dialog for image selection, resizes and crops the image.
+    Opens a file dialog for image selection or uses a provided path, resizes and crops the image.
     Does not directly modify 'widgets' dict but returns image objects.
     """
     image = None
     image_original = None
-    root = Tk()
-    root.withdraw()
-    file_path = filedialog.askopenfilename(initialfile=current_image_path)
-    if file_path:
-        pil_image = Image.open(file_path)
+    file_path_to_load = None
+
+    if test_file_path:
+        file_path_to_load = test_file_path
+    else:
+        from tkinter import Tk, filedialog # Moved import here
+        root = Tk()
+        root.withdraw()
+        file_path_to_load = filedialog.askopenfilename(initialfile=current_image_path)
+        # Ensure root is destroyed only if Tk was initialized
+        if 'root' in locals() and root: # Check if root was initialized
+            root.destroy()
+
+    if file_path_to_load:
+        pil_image = Image.open(file_path_to_load)
         img_width, img_height = pil_image.size
 
         if img_width < image_square_size or img_height < image_square_size:
@@ -105,7 +115,7 @@ def select_image(image_square_size, current_image_path=None):
             pil_image = pil_image.crop((left, top, right, bottom))
         
         image = pil_image # This is the potentially processed (cropped/resized) image
-        image_original = Image.open(file_path).copy() # Store a copy of the original for resets
+        image_original = Image.open(file_path_to_load).copy() # Store a copy of the original for resets
                                                  # Or, if the above pil_image is what we want as original after first load:
                                                  # image_original = pil_image.copy()
                                                  # For consistency with original code, let's assume 'image' becomes the new 'image'
@@ -114,8 +124,6 @@ def select_image(image_square_size, current_image_path=None):
                                                  # after crop/resize. This implies image_original is the cropped/resized one.
         image_original = image.copy()
 
-
-    root.destroy()
     # Returns the selected and processed (resized/cropped) PIL image, and its copy.
     # The main application (stringart.py) will be responsible for putting these into the 'widgets' dictionary.
     return image, image_original
@@ -178,7 +186,8 @@ def process_image(image_to_process, checkboxes_state, image_square_size, radius_
 
     if checkboxes_state.get("denoise", False):
         image_array = cv2.bilateralFilter(image_array, 9, 75, 75)
-    if checkboxes_state.get("Canny edge detection", False):
+    is_canny_active = checkboxes_state.get("Canny edge detection", False)
+    if is_canny_active:
         image_array = cv2.Canny(image_array, edge_params["canny_low"], edge_params["canny_high"])
     if checkboxes_state.get("Adaptive thresholding", False):
         image_array = cv2.adaptiveThreshold(
@@ -191,7 +200,9 @@ def process_image(image_to_process, checkboxes_state, image_square_size, radius_
         image_array = cv2.dilate(image_array, edge_params["dilate_kernel"], iterations=1) # original had 3-1=2
 
     if image_array.size > 0 and np.any(image_array): # Check if not empty and not all white
-      if image_array.ndim == 2 and image_array[0,0] == 0: # Check for inversion for B/W images
+      # Only apply inversion if Canny was not used, as Canny has a defined output (white edges on black)
+      # and other thresholding might produce black on white, needing inversion.
+      if not is_canny_active and image_array.ndim == 2 and image_array[0,0] == 0: # Check for inversion for B/W images
           # This condition might need to be more robust, e.g., check average color
           # For now, keeping it similar to original if first pixel is black
           image_array = cv2.bitwise_not(image_array)
