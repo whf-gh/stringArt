@@ -40,7 +40,7 @@ def to_real_coordinates(pin_coords_tuples, square_size, radius_pixel, radius_mil
 # Originally from stringart.py
 # Depends on calculate_line_darkness from image_processing.py
 def find_best_next_pin(pins_coords, init_array, current_pin_index, last_pin_index, 
-                         current_steps_indices, shortest_line_pixels, max_pin_usage):
+                         current_steps_indices, minimum_line_spans, max_pin_usage):
     """
     Finds the best next pin to draw a line to, based on line darkness and constraints.
     Args:
@@ -49,7 +49,7 @@ def find_best_next_pin(pins_coords, init_array, current_pin_index, last_pin_inde
         current_pin_index: Index of the current pin.
         last_pin_index: Index of the previously connected pin (can be None).
         current_steps_indices: List of pin INDICES already used in sequence.
-        shortest_line_pixels: Minimum length of a line in pixels.
+        minimum_line_spans: Minimum pins a line can spans.
         max_pin_usage: Maximum number of times a single pin can be part of a line.
     Returns:
         Tuple (best_pin_index, best_line_pixels) or (None, None) if no suitable pin is found.
@@ -88,7 +88,7 @@ def find_best_next_pin(pins_coords, init_array, current_pin_index, last_pin_inde
             int(prospective_pin_coord[0]), int(prospective_pin_coord[1])
         )
 
-        if darkness < best_darkness and len(line_pixels) >= shortest_line_pixels:
+        if darkness < best_darkness and abs(prospective_pin_index - current_pin_index) >= minimum_line_spans:
             best_darkness = darkness
             best_line_pixels = line_pixels
             best_pin_index = prospective_pin_index # Store index
@@ -109,7 +109,7 @@ def generate_next_string_segment(widgets):
             - "current_index": Index of the current pin.
             - "last_index": Index of the last pin connected (can be None).
             - "init_array": Numpy array of the image (modified by update_image_array).
-            - "parameters": Dictionary of settings like "Shortest Line in Pixels", "Max Pin Usage".
+            - "parameters": Dictionary of settings like "Minimum Pins Line Spans", "Max Pin Usage".
             - "steps_index": List of pin indices already connected. (Changed from "steps")
             - "processed_array": (Optional) Numpy array of a pre-processed image.
             - "decay": (Optional) Factor for how much lines lighten the image.
@@ -129,11 +129,11 @@ def generate_next_string_segment(widgets):
     steps_indices = widgets["steps_index"] # List of pin indices - THIS IS PASSED NOW
 
     # Ensure parameters are integers
-    shortest_line_pixels_param = parameters.get("Shortest Line in Pixels", 0)
+    minimum_line_spans_param = parameters.get("Minimum Pins Line Spans", 0)
     try:
-        shortest_line_pixels = int(shortest_line_pixels_param)
+        minimum_line_spans = int(minimum_line_spans_param)
     except ValueError:
-        shortest_line_pixels = 0 # Default or log error
+        minimum_line_spans = 0 # Default or log error
     
     max_pin_usage_param = parameters.get("Max Pin Usage", float('inf'))
     try:
@@ -150,7 +150,7 @@ def generate_next_string_segment(widgets):
     # It returns: best_pin_index, best_line_pixels, best_darkness (darkness is not used here)
     next_pin_index, line_pixel_coords, _ = find_best_next_pin(
         pins, init_array, current_index, last_index,
-        steps_indices, shortest_line_pixels, max_pin_usage # Pass steps_indices
+        steps_indices, minimum_line_spans, max_pin_usage # Pass steps_indices
     )
 
     if next_pin_index is not None and line_pixel_coords: # Check next_pin_index

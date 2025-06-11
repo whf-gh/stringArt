@@ -24,7 +24,7 @@ The `stringart.py` application offers a comprehensive set of features for genera
     *   Number of Lines: Set the maximum number of lines to be drawn.
     *   Radius in Pixels: Specify the radius of the string art canvas in pixels.
     *   Radius in millimeters: Define the real-world radius of the physical string art.
-    *   Shortest Line in Pixels: Set the minimum length for a line to be considered.
+    *   Minimum Pins Line Spans: Set the minimum number of pins for a line can spans.
     *   Max Pin Usage: Limit the number of times a single pin can be used.
 *   **Interactive GUI:**
     *   Built with Pygame for a responsive user experience.

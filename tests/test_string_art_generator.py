@@ -196,7 +196,7 @@ def test_find_best_next_pin_finds_optimal(mocker):
 
     best_pin_index, best_line_pixels, _ = find_best_next_pin(
         pins_coords, init_array, current_pin_index, last_pin_index,
-        pin_usage_counts, shortest_line_pixels=10, max_pin_usage=3
+        pin_usage_counts, minimum_line_spans=1, max_pin_usage=3
     )
 
     assert best_pin_index == 2, "Should choose pin 2 for the darkest path."
@@ -248,7 +248,7 @@ def test_find_best_next_pin_respects_max_pin_usage(mocker):
 
     best_pin_index, _, _ = find_best_next_pin(
         pins_coords, init_array, current_pin_index, last_pin_index,
-        pin_usage_counts, shortest_line_pixels=10, max_pin_usage=max_pin_usage
+        pin_usage_counts, minimum_line_spans=1, max_pin_usage=max_pin_usage
     )
 
     assert best_pin_index == 2, "Should choose pin 2 as pin 1 is maxed out."
@@ -276,36 +276,35 @@ def test_find_best_next_pin_respects_max_pin_usage(mocker):
     best_pin_index_none, _, _ = find_best_next_pin(
         pins_coords, init_array, current_pin_index, last_pin_index,
         pin_usage_counts_all_maxed_except_one_target, # Pin 1 (target) is maxed
-        shortest_line_pixels=10, max_pin_usage=max_pin_usage
+        minimum_line_spans=1, max_pin_usage=max_pin_usage
     )
     assert best_pin_index_none is None, "Should return None if the only viable pin is maxed out."
 
 
-def test_find_best_next_pin_respects_shortest_line(mocker):
-    """Tests that lines shorter than shortest_line_pixels are ignored."""
+def test_find_best_next_pin_respects_minimum_pins_line_spans(mocker):
+    """Tests that lines that do not span enough pins are ignored."""
     img_size = 100
     init_array = create_sample_image_array((img_size, img_size), 100) # All moderately dark
     pins_coords = create_mock_pins_coords(num_pins=3, square_size=img_size, radius=40)
-    # Pin 0, Pin 1 (darkest but too short), Pin 2 (suboptimal but long enough)
+    # Pin 0, Pin 1 (darkest but too close), Pin 2 (suboptimal but far enough)
 
-    shortest_line_min_len = 20
+    minimum_line_spans = 2
 
     def mock_darkness(img_array, x1,y1,x2,y2):
         start_pin = -1
         for idx, coord in enumerate(pins_coords):
-            if (x1,y1) == pytest.approx(coord, abs=1.0): # Corrected comparison
+            if (x1,y1) == pytest.approx(coord, abs=1.0):
                 start_pin = idx
                 break
         if start_pin == -1: raise ValueError(f"Mock could not identify start pin for int coords ({x1},{y1}) with float pins {pins_coords}")
 
-        if start_pin == 0 and ((x2,y2) == pytest.approx(pins_coords[1], abs=1.0)): # Path 0 -> 1
-            return 50.0, [(i,i) for i in range(shortest_line_min_len - 5)] # Darkest, but too short
-        if start_pin == 0 and ((x2,y2) == pytest.approx(pins_coords[2], abs=1.0)): # Path 0 -> 2
-            return 100.0, [(i,i) for i in range(shortest_line_min_len + 5)] # Suboptimal, but long enough
-        # Fallback for any other pins from start_pin 0
+        if start_pin == 0 and ((x2,y2) == pytest.approx(pins_coords[1], abs=1.0)): # Path 0 -> 1 (adjacent, not enough span)
+            return 50.0, [(i,i) for i in range(20)] # Darkest, but not enough pins spanned
+        if start_pin == 0 and ((x2,y2) == pytest.approx(pins_coords[2], abs=1.0)): # Path 0 -> 2 (spans 2 pins)
+            return 100.0, [(i,i) for i in range(25)] # Suboptimal, but enough pins spanned
         if start_pin == 0:
-            return 200.0, [(i,i) for i in range(shortest_line_min_len)]
-        return 250.0, [(i,i) for i in range(shortest_line_min_len)] # Default for any other start_pin
+            return 200.0, [(i,i) for i in range(20)]
+        return 250.0, [(i,i) for i in range(20)]
 
     mocker.patch('string_art_generator.calculate_line_darkness', side_effect=mock_darkness)
 
@@ -315,20 +314,21 @@ def test_find_best_next_pin_respects_shortest_line(mocker):
 
     best_pin_index, _, _ = find_best_next_pin(
         pins_coords, init_array, current_pin_index, last_pin_index,
-        pin_usage_counts, shortest_line_pixels=shortest_line_min_len, max_pin_usage=3
+        pin_usage_counts, minimum_line_spans=minimum_line_spans, max_pin_usage=3
     )
 
-    assert best_pin_index == 2, "Should choose pin 2 as pin 1's line is too short."
+    assert best_pin_index == 2, "Should choose pin 2 as pin 1's line does not span enough pins."
 
-    # Scenario: All lines are too short
-    def mock_darkness_all_short(img_array, x1,y1,x2,y2):
-        return 50.0, [(i,i) for i in range(shortest_line_min_len - 1)] # All lines are dark but too short
-    mocker.patch('string_art_generator.calculate_line_darkness', side_effect=mock_darkness_all_short)
+    # Scenario: All lines do not span enough pins
+    def mock_darkness_all_too_close(img_array, x1,y1,x2,y2):
+        return 50.0, [(i,i) for i in range(20)]
+    mocker.patch('string_art_generator.calculate_line_darkness', side_effect=mock_darkness_all_too_close)
+    # Set minimum_line_spans to a value greater than the max possible index difference (which is 2 for 3 pins)
     best_pin_index_none, _, _ = find_best_next_pin(
         pins_coords, init_array, current_pin_index, last_pin_index,
-        pin_usage_counts, shortest_line_pixels=shortest_line_min_len, max_pin_usage=3
+        pin_usage_counts, minimum_line_spans=3, max_pin_usage=3
     )
-    assert best_pin_index_none is None, "Should return None if all lines are too short."
+    assert best_pin_index_none is None, "Should return None if all lines do not span enough pins."
 
 
 def test_find_best_next_pin_avoids_last_pin(mocker):
@@ -363,7 +363,7 @@ def test_find_best_next_pin_avoids_last_pin(mocker):
     pin_usage_counts = Counter({0:1, 1:1})
     best_pin_index, _, _ = find_best_next_pin(
         pins_coords, init_array, current_pin_index, last_pin_index,
-        pin_usage_counts, shortest_line_pixels=10, max_pin_usage=3
+        pin_usage_counts, minimum_line_spans=1, max_pin_usage=3
     )
 
     assert best_pin_index == 2, "Should choose pin 2, avoiding going back to last_pin_index 0."
@@ -386,7 +386,7 @@ def test_find_best_next_pin_no_suitable_pin(mocker):
 
     best_pin_index, best_line_pixels, _ = find_best_next_pin(
         pins_coords, init_array, current_pin_index, last_pin_index,
-        pin_usage_counts, shortest_line_pixels=10, max_pin_usage=3 # Removed darkness_threshold
+        pin_usage_counts, minimum_line_spans=1, max_pin_usage=3
     )
 
     assert best_pin_index is None, "Expected no suitable pin if image is all white or lines are too light."
@@ -406,7 +406,7 @@ def mock_widgets_basic():
         "current_index": 0,
         "last_index": -1, # Using -1 to indicate no previous pin for simplicity
         "init_array": init_array,
-        "parameters": {"Shortest Line in Pixels": 5, "Max Pin Usage": 3, "Darkness Threshold": 250},
+        "parameters": {"Minimum Pins Line Spans": 1, "Max Pin Usage": 3},
         "steps_index": [0], # Initial state, current_index is 0
         "pin_usage": Counter([0]) # Initial state
     }

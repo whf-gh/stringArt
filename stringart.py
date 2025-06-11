@@ -278,7 +278,7 @@ def _setup_config_ui(widgets):
         "Number of Lines": widgets["parameters"].get("Number of Lines", 500),
         "Radius in Pixels": widgets["parameters"].get("Radius in Pixels", widgets["image_square_size"] // 2),
         "Radius in milimeter": widgets["parameters"].get("Radius in milimeter", 190),
-        "Shortest Line in Pixels": widgets["parameters"].get("Shortest Line in Pixels", widgets["image_square_size"] // 10),
+        "Minimum Pins Line Spans": widgets["parameters"].get("Minimum Pins Line Spans", widgets["parameters"].get("Number of Pins", 200) // 10),
         "Max Pin Usage": widgets["parameters"].get("Max Pin Usage", 15),
     }
     widgets["parameters"] = {k: str(v) for k,v in initial_params.items()} # UI expects strings for input boxes
