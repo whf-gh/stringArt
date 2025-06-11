@@ -60,7 +60,7 @@ def init_widgets():
     return widgets
 
 
-def create_config_widgets(widgets, select_image_callback, submit_parameters_callback, initial_params, initial_checkboxes, calculate_pins_callback, process_image_callback):
+def create_config_widgets(widgets, select_image_callback, submit_parameters_callback, initial_params, initial_checkboxes):
     params = initial_params
     buttons = {"Select Image": select_image_callback, "Submit": submit_parameters_callback}
     checkboxes = initial_checkboxes
@@ -120,33 +120,10 @@ def create_config_widgets(widgets, select_image_callback, submit_parameters_call
         widgets["active_box"] = widgets["input_boxes"][0]
     else:
         widgets["active_box"] = None
-    # widgets["state"] = State.CONFIGURING # State will be managed by main module
-    # The 'pins' calculation is a core logic, not directly UI.
-    # The UI might display pins, but their calculation is tied to core parameters.
-    # stringart.py will call calculate_pins and store it in widgets["pins"]
-    # create_config_widgets should then use widgets["pins"] if available for display purposes or
-    # rely on stringart.py to update it.
-    # For now, let's assume stringart.py handles pin calculation and updates widgets["pins"].
-    # If calculate_pins_callback was meant to trigger a re-calculation and update,
-    # that logic will be in stringart.py.
-    # widgets["pins"] = calculate_pins_callback( 
-    #     widgets["image_square_size"],
-    #     params["Radius in Pixels"],
-    #     params["Number of Pins"],
-    # )
-    # Instead, ensure 'pins' are available in widgets for drawing, populated by stringart.py
+    # ensure 'pins' are available in widgets for drawing, populated by stringart.py
     if "pins" not in widgets: # Initialize if not present, stringart.py should fill this
         widgets["pins"] = []
-    # If params change, stringart.py should detect this (e.g. in submit_parameters or handle_event if param is edited)
-    # and call calculate_pins, then update widgets["pins"], then tell UI to redraw.
 
-    # The process_image_callback is used in handle_event when checkboxes change.
-    # The select_image_callback is used for the "Select Image" button.
-    # These callbacks will be connected by stringart.py to its own orchestrator functions
-    # which in turn will call the respective functions from image_processing.py.
-    # stringart.py will be responsible for implementing these callbacks and calling the
-    # functions from image_processing.py, then updating the widgets dictionary,
-    # and finally telling the UI to redraw if necessary.
     pass # No direct change here, but noting the responsibility of stringart.py
 
 
@@ -503,11 +480,7 @@ def handle_event(widgets, event, process_image_callback, calculate_pins_callback
                 )
                 if active_box_param_name == "Number of Pins" or active_box_param_name == "Radius in Pixels":
                     # Call calculate_pins and process_image via callbacks
-                    widgets["pins"] = calculate_pins_callback(
-                        widgets["image_square_size"],
-                        widgets["parameters"]["Radius in Pixels"],
-                        widgets["parameters"]["Number of Pins"],
-                    )
+                    calculate_pins_callback(widgets)
                     process_image_callback(widgets)
             elif event.key == pg.K_TAB:
                 move_to_next_box(widgets)
@@ -516,11 +489,7 @@ def handle_event(widgets, event, process_image_callback, calculate_pins_callback
                 widgets["parameters"][active_box_param_name] = int(current_value + event.unicode)
                 if active_box_param_name == "Number of Pins" or active_box_param_name == "Radius in Pixels":
                     # Call calculate_pins and process_image via callbacks
-                    widgets["pins"] = calculate_pins_callback(
-                        widgets["image_square_size"],
-                        widgets["parameters"]["Radius in Pixels"],
-                        widgets["parameters"]["Number of Pins"],
-                    )
+                    calculate_pins_callback(widgets)
                     process_image_callback(widgets)
             return # Event handled by UI input fields
     

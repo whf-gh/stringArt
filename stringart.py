@@ -308,16 +308,7 @@ def _setup_config_ui(widgets):
         select_image_callback=handle_select_image,
         submit_parameters_callback=handle_submit_parameters,
         initial_params=initial_params, # Pass the numeric initial params
-        initial_checkboxes=initial_checkboxes,
-        # calculate_pins_callback is not directly used by ui.create_config_widgets anymore for setting pins,
-        # but could be a generic callback if UI needed to trigger recalculation.
-        # For now, stringart.py handles pin calculation initially and on param changes.
-        calculate_pins_callback=lambda w: string_art_generator.calculate_pins(
-            w["image_square_size"], 
-            int(w["parameters"]["Radius in Pixels"]), 
-            int(w["parameters"]["Number of Pins"])
-        ), # This might be used by ui.handle_event
-        process_image_callback=handle_process_image # This is used by ui.handle_event for checkbox changes
+        initial_checkboxes=initial_checkboxes
     )
 
 # --- Main Application Setup ---
