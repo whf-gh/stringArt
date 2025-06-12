@@ -186,8 +186,7 @@ def process_image(image_to_process, checkboxes_state, image_square_size, radius_
 
     if checkboxes_state.get("denoise", False):
         image_array = cv2.bilateralFilter(image_array, 9, 75, 75)
-    is_canny_active = checkboxes_state.get("Canny edge detection", False)
-    if is_canny_active:
+    if checkboxes_state.get("Canny edge detection", False):
         image_array = cv2.Canny(image_array, edge_params["canny_low"], edge_params["canny_high"])
     if checkboxes_state.get("Adaptive thresholding", False):
         image_array = cv2.adaptiveThreshold(
@@ -200,9 +199,7 @@ def process_image(image_to_process, checkboxes_state, image_square_size, radius_
         image_array = cv2.dilate(image_array, edge_params["dilate_kernel"], iterations=1) # original had 3-1=2
 
     if image_array.size > 0 and np.any(image_array): # Check if not empty and not all white
-      # Only apply inversion if Canny was not used, as Canny has a defined output (white edges on black)
-      # and other thresholding might produce black on white, needing inversion.
-      if not is_canny_active and image_array.ndim == 2 and image_array[0,0] == 0: # Check for inversion for B/W images
+      if image_array.ndim == 2 and image_array[0,0] == 0: # Check for inversion for B/W images
           # This condition might need to be more robust, e.g., check average color
           # For now, keeping it similar to original if first pixel is black
           image_array = cv2.bitwise_not(image_array)
