@@ -514,4 +514,14 @@ def remove_resume_button(widgets):
     """
     if "buttons" in widgets and "Resume" in widgets["buttons"]:
         widgets["buttons"].pop("Resume")
-    # The button_boxes and button_label will be rebuilt on next draw_information call
+
+def draw_line_on_surface(surface, line_pixels, color):
+    """
+    Draws a sequence of points as a line on the given Pygame surface.
+    line_pixels: list of (x, y) tuples.
+    color: color tuple (R, G, B).
+    """
+    if not line_pixels or len(line_pixels) < 2:
+        return
+    import pygame as pg
+    pg.draw.lines(surface, color, False, line_pixels, 1)

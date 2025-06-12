@@ -436,6 +436,8 @@ def main():
                     handle_pause_drawing(widgets) # Or handle_pause_drawing(widgets) if it's a batch
                 
                 # Update and draw information panel
+                if widgets["init_array"] is not None:
+                    widgets["display_init_surface"] = pil_to_pygame_surface(Image.fromarray(widgets["init_array"]).resize((widgets["image_info_size"], widgets["image_info_size"]), Image.LANCZOS))
                 ui.draw_information(widgets)
 
             case State.PAUSING:
