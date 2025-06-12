@@ -352,8 +352,8 @@ def _setup_config_ui(widgets):
         widgets,
         select_image_callback=handle_select_image,
         submit_parameters_callback=handle_submit_parameters,
-        initial_params=initial_params, # Pass the numeric initial params
-        initial_checkboxes=initial_checkboxes,
+        initial_params_config=initial_params, # Changed keyword
+        initial_checkboxes_config=initial_checkboxes, # Changed keyword
         checkbox_param_map=checkbox_parameter_map # Pass the new map
     )
 
