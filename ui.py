@@ -52,6 +52,14 @@ def init_widgets():
     widgets["cursor_visible"] = True
     widgets["active_scrollbar_drag"] = None # ID of the scrollbar being dragged
     widgets["scrollbar_drag_offset_x"] = 0 # Mouse click offset from thumb's left edge
+
+    # For storing create_config_widgets arguments for refresh
+    widgets["_config_select_image_callback"] = None
+    widgets["_config_submit_parameters_callback"] = None
+    widgets["_config_initial_params"] = {} # Use a dict
+    widgets["checkboxes_initialized"] = False # Flag for first-time setup of checkboxes
+    # widgets["checkbox_param_map"] is already handled (added in create_config_widgets)
+
     # widgets["state"] = State.CONFIGURING # State will be managed by main module
     widgets["image"] = None # This will be a pygame surface or None
     widgets["image_original"] = None # This might store the path or a PIL image if needed for re-processing
@@ -71,16 +79,48 @@ def init_widgets():
     return widgets
 
 
-def create_config_widgets(widgets, select_image_callback, submit_parameters_callback, initial_params, initial_checkboxes):
-    params = initial_params
-    buttons = {"Select Image": select_image_callback, "Submit": submit_parameters_callback}
-    checkboxes = initial_checkboxes
+def create_config_widgets(widgets, select_image_callback, submit_parameters_callback,
+                          initial_params_config, initial_checkboxes_config, checkbox_param_map=None):
+    # Store callbacks and initial configurations for potential refresh calls
+    # These are stored on the first call and then reused if subsequent calls pass None for them.
+    if select_image_callback is not None:
+        widgets["_config_select_image_callback"] = select_image_callback
+    if submit_parameters_callback is not None:
+        widgets["_config_submit_parameters_callback"] = submit_parameters_callback
+    if initial_params_config is not None: # This should always be provided on first call
+        widgets["_config_initial_params"] = initial_params_config
+
+    # Use stored versions if available (e.g. for refresh)
+    current_select_image_callback = widgets["_config_select_image_callback"]
+    current_submit_parameters_callback = widgets["_config_submit_parameters_callback"]
+    current_initial_params = widgets["_config_initial_params"]
+
+    widgets["checkbox_param_map"] = checkbox_param_map or widgets.get("checkbox_param_map", {}) # Store or update map
+
+    # Handle checkbox states:
+    # initial_checkboxes_config is the definition of checkboxes and their default states.
+    # widgets["checkboxes"] holds the current runtime state.
+    if not widgets.get("checkboxes_initialized"):
+        widgets["checkboxes"] = initial_checkboxes_config.copy() if initial_checkboxes_config else {}
+        widgets["checkboxes_initialized"] = True
+    # On refresh, initial_checkboxes_config might be the current widgets["checkboxes"] or None.
+    # If it's the current widgets["checkboxes"], then this assignment is fine.
+    # If it's None on refresh, we rely on widgets["checkboxes"] already being correct.
+    # The key is that create_config_widgets uses widgets["checkboxes"] as the source of truth for drawing.
+    if initial_checkboxes_config is not None:
+         widgets["checkboxes"] = initial_checkboxes_config # Allow overriding with new config if passed
+
+    params_to_display = current_initial_params # Use the stored/initial definition of params
+    buttons = {"Select Image": current_select_image_callback, "Submit": current_submit_parameters_callback}
+    # Checkboxes for UI creation loop should iterate over the *keys* defined in initial_checkboxes_config
+    # or if that's not available, the current widgets["checkboxes"].
+    # For now, the loop `for checkbox_name in widgets["checkboxes"].keys():` later will use current state.
 
     # scrollbar_param_configs is now SCROLLBAR_PARAM_CONFIGS (module level)
-    
-    widgets["parameters"] = params
+
+    widgets["parameters"] = params_to_display # This holds {name: default_value}
     widgets["buttons"] = buttons
-    widgets["checkboxes"] = checkboxes
+    # widgets["checkboxes"] is already set above and holds the current true/false states.
     margin = widgets["image_square_size"] * 0.05
     # position = [margin, margin] # Original position, now labal_position will be used carefully
     labal_position = [margin, margin] # Use a mutable list for labal_position
@@ -113,76 +153,72 @@ def create_config_widgets(widgets, select_image_callback, submit_parameters_call
     widgets["checkbox_boxes"] = {} # Clear previous checkbox boxes
     widgets["checkbox_labels"] = {} # Clear previous checkbox labels
 
-    for param, default_value in params.items():
-        label_surface = font.render(param, True, (255, 255, 255))
-        # Position for the label, vertically centered with the element
-        current_label_pos = (labal_position[0], labal_position[1] + (element_height - label_surface.get_height()) // 2)
-        widgets["labels"].append((label_surface, current_label_pos))
+    # Retrieve map and current checkbox states for conditional display logic
+    active_checkbox_param_map = widgets.get("checkbox_param_map", {}) # Renamed to avoid conflict with arg
+    current_checkbox_states = widgets.get("checkboxes", {}) # This is the source of truth for checkbox states
 
-        element_x_pos = labal_position[0] + labal_length + font_size_ref[1] # Standard x start for input elements (box or scrollbar)
+    for param_name, default_value in params_to_display.items(): # Iterate using stored initial params
+        create_ui_for_param = True # Flag to determine if UI should be created
 
-        if param in SCROLLBAR_PARAM_CONFIGS: # Use module-level config
-            config = SCROLLBAR_PARAM_CONFIGS[param]
-            min_val, max_val = config['min'], config['max']
-            # Ensure current_val is within min/max, could be an issue if default_value is outside
-            current_val = max(min_val, min(default_value, max_val))
+        # Check if this parameter is conditional
+        is_conditional = False
+        controlling_checkbox_label = None
+        for chk_label, controlled_params in checkbox_param_map.items():
+            if param_name in controlled_params:
+                is_conditional = True
+                controlling_checkbox_label = chk_label
+                break
 
+        if is_conditional:
+            if not current_checkbox_states.get(controlling_checkbox_label, False):
+                create_ui_for_param = False # Don't create if controlling checkbox is unchecked
 
-            track_rect = pg.Rect(
-                element_x_pos,
-                labal_position[1],
-                scrollbar_track_width, # Wider track for scrollbars
-                element_height
-            )
+        if create_ui_for_param:
+            label_surface = font.render(param_name, True, (255, 255, 255))
+            current_label_pos = (labal_position[0], labal_position[1] + (element_height - label_surface.get_height()) // 2)
+            widgets["labels"].append((label_surface, current_label_pos))
 
-            thumb_width = 10 # Width of the thumb
-            # Calculate thumb's X position based on current_val relative to min_val and max_val
-            # Ensure max_val is not equal to min_val to avoid division by zero for ratio
-            if max_val == min_val: # Should not happen for defined scrollbars
-                thumb_x_ratio = 0
+            element_x_pos = labal_position[0] + labal_length + font_size_ref[1]
+
+            if param_name in SCROLLBAR_PARAM_CONFIGS:
+                config = SCROLLBAR_PARAM_CONFIGS[param_name]
+                min_val, max_val = config['min'], config['max']
+                current_val = max(min_val, min(default_value, max_val))
+
+                track_rect = pg.Rect(
+                    element_x_pos, labal_position[1],
+                    scrollbar_track_width, element_height
+                )
+                thumb_width = 10
+                thumb_x_ratio = (current_val - min_val) / (max_val - min_val) if (max_val - min_val) != 0 else 0
+                thumb_x = track_rect.x + thumb_x_ratio * (track_rect.width - thumb_width)
+                thumb_x = max(track_rect.x, min(thumb_x, track_rect.right - thumb_width))
+                thumb_rect = pg.Rect(thumb_x, track_rect.y, thumb_width, track_rect.height)
+
+                scrollbar_data = {
+                    'id': param_name, 'rect': track_rect, 'thumb_rect': thumb_rect,
+                    'min_val': min_val, 'max_val': max_val, 'current_val': current_val,
+                }
+                widgets["scrollbars"].append(scrollbar_data)
+                widgets["defaults"][param_name] = default_value
             else:
-                thumb_x_ratio = (current_val - min_val) / (max_val - min_val)
+                # Standard input box
+                input_box_rect = pg.Rect(
+                    element_x_pos, labal_position[1],
+                    element_width, element_height
+                )
+                widgets["input_boxes"].append(input_box_rect)
+                widgets["defaults"][param_name] = default_value
 
-            # Final thumb X position, ensuring it stays within the track
-            thumb_x = track_rect.x + thumb_x_ratio * (track_rect.width - thumb_width)
-            # Ensure thumb_x is within bounds [track_rect.x, track_rect.right - thumb_width]
-            thumb_x = max(track_rect.x, min(thumb_x, track_rect.right - thumb_width))
+            labal_position[1] += element_height * 1.7 # Advance Y position only if UI was created
 
-            thumb_rect = pg.Rect(
-                thumb_x,
-                track_rect.y,
-                thumb_width,
-                track_rect.height # Thumb height same as track height
-            )
-
-            scrollbar_data = {
-                'id': param, # Parameter name
-                'rect': track_rect, # The scrollbar track
-                'thumb_rect': thumb_rect, # The draggable thumb
-                'min_val': min_val,
-                'max_val': max_val,
-                'current_val': current_val, # Actual current value of the parameter
-                # 'label_surface': label_surface, # Storing label surface if needed later
-                # 'label_pos': current_label_pos  # Storing label pos if needed later
-            }
-            widgets["scrollbars"].append(scrollbar_data)
-            widgets["defaults"][param] = default_value # Store original default for reset
-        else:
-            # Standard input box for other parameters
-            input_box_rect = pg.Rect(
-                element_x_pos,
-                labal_position[1],
-                element_width, # Use standard element_width for input boxes
-                element_height
-            )
-            widgets["input_boxes"].append(input_box_rect)
-            widgets["defaults"][param] = default_value
-
-        labal_position[1] += element_height * 1.7 # Use element_height for consistent spacing, advance Y for next element
-
-    # Reposition checkboxes and buttons to be below the parameter inputs/scrollbars
-    # Checkboxes
-    for checkbox_name in checkboxes.keys():
+    # Checkboxes are created next, their Y position depends on the last `labal_position[1]`
+    # The visual checkbox elements should be created based on the keys in initial_checkboxes_config
+    # if available, or widgets["checkboxes"] if not.
+    # For simplicity, stringart.py always passes initial_checkboxes (which becomes initial_checkboxes_config here)
+    # on the first call, and on refresh it passes widgets["checkboxes"].
+    # So, iterating `widgets["checkboxes"].keys()` is fine for creating the visual elements.
+    for checkbox_name in widgets["checkboxes"].keys():
         # Label for checkbox (aligned with other parameter labels)
         checkbox_label_surface = font.render(checkbox_name, True, (255, 255, 255))
         clabel_pos = (labal_position[0], labal_position[1] + (element_height - checkbox_label_surface.get_height()) // 2)
@@ -626,7 +662,22 @@ def handle_event(widgets, event, process_image_callback, calculate_pins_callback
         for checkbox_label in list(widgets.get("checkboxes", {}).keys()):
             if checkbox_label in widgets["checkbox_boxes"]:
                 if widgets["checkbox_boxes"][checkbox_label].collidepoint(adjusted_pos):
+                    # Toggle the state
                     widgets["checkboxes"][checkbox_label] = not widgets["checkboxes"][checkbox_label]
+
+                    # Check if this checkbox controls other parameters' visibility
+                    if checkbox_label in widgets.get("checkbox_param_map", {}):
+                        # Re-create/refresh the config widgets
+                        create_config_widgets(
+                            widgets,
+                            None, # select_image_callback - use stored
+                            None, # submit_parameters_callback - use stored
+                            None, # initial_params_config - use stored
+                            widgets["checkboxes"], # Pass current, updated checkbox states
+                            widgets["checkbox_param_map"] # Pass stored map
+                        )
+
+                    # Always process image after checkbox toggle
                     process_image_callback(widgets) 
                     return
 

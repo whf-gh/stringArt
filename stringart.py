@@ -342,12 +342,19 @@ def _setup_config_ui(widgets):
         initial_params["Number of Pins"]    # Use actual int value
     )
     
+    # Define mapping from checkboxes to parameters they control
+    checkbox_parameter_map = {
+        "Canny edge detection": ["Canny Low", "Canny High"],
+        "Adaptive thresholding": ["Adaptive Block", "Adaptive C"]
+    }
+
     ui.create_config_widgets(
         widgets,
         select_image_callback=handle_select_image,
         submit_parameters_callback=handle_submit_parameters,
         initial_params=initial_params, # Pass the numeric initial params
-        initial_checkboxes=initial_checkboxes
+        initial_checkboxes=initial_checkboxes,
+        checkbox_param_map=checkbox_parameter_map # Pass the new map
     )
 
 # --- Main Application Setup ---
