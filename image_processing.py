@@ -85,17 +85,30 @@ def select_image(image_square_size, current_image_path=None, test_file_path=None
     image = None
     image_original = None
     file_path_to_load = None
+    dummy_image_path = "tests/assets/dummy_image.png" # Default dummy image
 
     if test_file_path:
         file_path_to_load = test_file_path
     else:
-        from tkinter import Tk, filedialog # Moved import here
-        root = Tk()
-        root.withdraw()
-        file_path_to_load = filedialog.askopenfilename(initialfile=current_image_path)
-        # Ensure root is destroyed only if Tk was initialized
-        if 'root' in locals() and root: # Check if root was initialized
-            root.destroy()
+        try:
+            from tkinter import Tk, filedialog # Moved import here
+            root = Tk()
+            root.withdraw()
+            file_path_to_load = filedialog.askopenfilename(initialfile=current_image_path)
+            # Ensure root is destroyed only if Tk was initialized
+            if 'root' in locals() and root: # Check if root was initialized
+                root.destroy()
+
+            if not file_path_to_load: # User cancelled dialog or it failed
+                print("File dialog cancelled or failed. Attempting to load dummy image.")
+                file_path_to_load = dummy_image_path
+        except ImportError:
+            print("Tkinter ImportError caught. Falling back to dummy image.")
+            file_path_to_load = dummy_image_path
+        except Exception as e: # Catch other Tkinter related errors
+            print(f"Tkinter error: {e}. Falling back to dummy image.")
+            file_path_to_load = dummy_image_path
+
 
     if file_path_to_load:
         pil_image = Image.open(file_path_to_load)
@@ -148,15 +161,16 @@ def apply_circle_mask(image, center, radius):
     return white_background # Return RGB image
 
 # Originally from ui.py, now in image_processing.py
-def process_image(image_to_process, checkboxes_state, image_square_size, radius_pixels, existing_init_array=None):
+def process_image(image_to_process, checkboxes_state, image_square_size, radius_pixels, existing_init_array=None, canny_low=100, canny_high=160, adaptive_block=9, adaptive_c=2):
     """
     Processes a PIL image based on checkbox states.
     Returns new 'image' (PIL, processed), 'init_array' (numpy), 'processed_array' (numpy).
     'image_to_process' is equivalent to widgets["image_original"] (the clean, selected image).
     'checkboxes_state' is equivalent to widgets["checkboxes"].
     """
+    # Parameters like kernels are not adjusted by UI, so they can stay in a local dict.
+    # Adjustable parameters are now arguments to the function.
     edge_params = {
-        "canny_low": 100, "canny_high": 160, "adaptive_block": 9, "adaptive_c": 2,
         "blur_kernel": (5, 5), "dilate_kernel": np.ones((2, 2), np.uint8),
         "erode_kernel": np.ones((1, 1), np.uint8),
     }
@@ -187,11 +201,11 @@ def process_image(image_to_process, checkboxes_state, image_square_size, radius_
     if checkboxes_state.get("denoise", False):
         image_array = cv2.bilateralFilter(image_array, 9, 75, 75)
     if checkboxes_state.get("Canny edge detection", False):
-        image_array = cv2.Canny(image_array, edge_params["canny_low"], edge_params["canny_high"])
+        image_array = cv2.Canny(image_array, canny_low, canny_high)
     if checkboxes_state.get("Adaptive thresholding", False):
         image_array = cv2.adaptiveThreshold(
             image_array, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY_INV, edge_params["adaptive_block"], edge_params["adaptive_c"]
+            cv2.THRESH_BINARY_INV, adaptive_block, adaptive_c
         )
     if checkboxes_state.get("Global Thresholding", False):
         _, image_array = cv2.threshold(image_array, 127, 255, cv2.THRESH_BINARY)
