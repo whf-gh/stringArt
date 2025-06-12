@@ -127,7 +127,8 @@ def create_config_widgets(widgets, select_image_callback, submit_parameters_call
     font = widgets["font"]
 
     # Calculate max label length for alignment across all configurable items
-    all_configurable_items = list(params.keys()) + list(checkboxes.keys()) # Buttons usually don't have a left-aligned label in this layout
+    # Use the initial config dicts for this, as they contain all possible items
+    all_configurable_items = list(initial_params_config.keys()) + list(initial_checkboxes_config.keys()) # Buttons usually don't have a left-aligned label in this layout
     if not all_configurable_items:
         labal_length = 0
     else:
