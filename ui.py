@@ -52,6 +52,11 @@ def init_widgets():
     widgets["cursor_visible"] = True
     widgets["active_scrollbar_drag"] = None # ID of the scrollbar being dragged
     widgets["scrollbar_drag_offset_x"] = 0 # Mouse click offset from thumb's left edge
+    # Panel management: default to config, can toggle to settings panel
+    widgets["active_panel"] = "config"
+    widgets["panel_toggle_button_rect"] = None
+    widgets["panel_toggle_button_label_surface"] = None
+    widgets["panel_toggle_button_text"] = "Settings"
 
     # For storing create_config_widgets arguments for refresh
     widgets["_config_select_image_callback"] = None
@@ -127,8 +132,10 @@ def create_config_widgets(widgets, select_image_callback, submit_parameters_call
     font = widgets["font"]
 
     # Calculate max label length for alignment across all configurable items
-    # Use the initial config dicts for this, as they contain all possible items
-    all_configurable_items = list(initial_params_config.keys()) + list(initial_checkboxes_config.keys()) # Buttons usually don't have a left-aligned label in this layout
+    # Use stored params and current checkboxes for robustness during refresh
+    params_keys = list(current_initial_params.keys()) if isinstance(current_initial_params, dict) else []
+    checkbox_keys = list(widgets.get("checkboxes", {}).keys())
+    all_configurable_items = params_keys + checkbox_keys
     if not all_configurable_items:
         labal_length = 0
     else:
@@ -154,9 +161,30 @@ def create_config_widgets(widgets, select_image_callback, submit_parameters_call
     widgets["checkbox_boxes"] = {} # Clear previous checkbox boxes
     widgets["checkbox_labels"] = {} # Clear previous checkbox labels
 
+    # Create top-right toggle button (Settings <-> Config)
+    info_surface = widgets["information_surface"]
+    info_w = info_surface.get_width()
+    toggle_label_text = "Settings" if widgets.get("active_panel", "config") == "config" else "Config"
+    toggle_label_surface = font.render(toggle_label_text, True, (255, 255, 255))
+    toggle_btn_width = int(toggle_label_surface.get_width() * 1.2)
+    toggle_btn_height = int(element_height * 1.1)
+    toggle_btn_rect = pg.Rect(
+        int(info_w - margin - toggle_btn_width),
+        int(margin),
+        toggle_btn_width,
+        toggle_btn_height
+    )
+    widgets["panel_toggle_button_rect"] = toggle_btn_rect
+    widgets["panel_toggle_button_label_surface"] = toggle_label_surface
+    widgets["panel_toggle_button_text"] = toggle_label_text
+
     # Retrieve map and current checkbox states for conditional display logic
     active_checkbox_param_map = widgets.get("checkbox_param_map", {}) # Renamed to avoid conflict with arg
     current_checkbox_states = widgets.get("checkboxes", {}) # This is the source of truth for checkbox states
+
+    # Decide which UI elements to show based on active panel
+    show_inputs = widgets.get("active_panel", "config") == "settings"
+    show_scrollbars = widgets.get("active_panel", "config") == "config"
 
     for param_name, default_value in params_to_display.items(): # Iterate using stored initial params
         create_ui_for_param = True # Flag to determine if UI should be created
@@ -164,7 +192,7 @@ def create_config_widgets(widgets, select_image_callback, submit_parameters_call
         # Check if this parameter is conditional
         is_conditional = False
         controlling_checkbox_label = None
-        for chk_label, controlled_params in checkbox_param_map.items():
+        for chk_label, controlled_params in active_checkbox_param_map.items():
             if param_name in controlled_params:
                 is_conditional = True
                 controlling_checkbox_label = chk_label
@@ -175,13 +203,13 @@ def create_config_widgets(widgets, select_image_callback, submit_parameters_call
                 create_ui_for_param = False # Don't create if controlling checkbox is unchecked
 
         if create_ui_for_param:
-            label_surface = font.render(param_name, True, (255, 255, 255))
-            current_label_pos = (labal_position[0], labal_position[1] + (element_height - label_surface.get_height()) // 2)
-            widgets["labels"].append((label_surface, current_label_pos))
-
             element_x_pos = labal_position[0] + labal_length + font_size_ref[1]
 
-            if param_name in SCROLLBAR_PARAM_CONFIGS:
+            # Scrollbars are shown on config panel
+            if param_name in SCROLLBAR_PARAM_CONFIGS and show_scrollbars:
+                label_surface = font.render(param_name, True, (255, 255, 255))
+                current_label_pos = (labal_position[0], labal_position[1] + (element_height - label_surface.get_height()) // 2)
+                widgets["labels"].append((label_surface, current_label_pos))
                 config = SCROLLBAR_PARAM_CONFIGS[param_name]
                 min_val, max_val = config['min'], config['max']
                 current_val = max(min_val, min(default_value, max_val))
@@ -202,7 +230,12 @@ def create_config_widgets(widgets, select_image_callback, submit_parameters_call
                 }
                 widgets["scrollbars"].append(scrollbar_data)
                 widgets["defaults"][param_name] = default_value
-            else:
+                labal_position[1] += element_height * 1.7
+            # Text input boxes are shown on settings panel
+            elif param_name not in SCROLLBAR_PARAM_CONFIGS and show_inputs:
+                label_surface = font.render(param_name, True, (255, 255, 255))
+                current_label_pos = (labal_position[0], labal_position[1] + (element_height - label_surface.get_height()) // 2)
+                widgets["labels"].append((label_surface, current_label_pos))
                 # Standard input box
                 input_box_rect = pg.Rect(
                     element_x_pos, labal_position[1],
@@ -210,8 +243,7 @@ def create_config_widgets(widgets, select_image_callback, submit_parameters_call
                 )
                 widgets["input_boxes"].append(input_box_rect)
                 widgets["defaults"][param_name] = default_value
-
-            labal_position[1] += element_height * 1.7 # Advance Y position only if UI was created
+                labal_position[1] += element_height * 1.7
 
     # Checkboxes are created next, their Y position depends on the last `labal_position[1]`
     # The visual checkbox elements should be created based on the keys in initial_checkboxes_config
@@ -219,21 +251,23 @@ def create_config_widgets(widgets, select_image_callback, submit_parameters_call
     # For simplicity, stringart.py always passes initial_checkboxes (which becomes initial_checkboxes_config here)
     # on the first call, and on refresh it passes widgets["checkboxes"].
     # So, iterating `widgets["checkboxes"].keys()` is fine for creating the visual elements.
-    for checkbox_name in widgets["checkboxes"].keys():
+    # Checkboxes are only displayed on the main config panel
+    if show_scrollbars:
+        for checkbox_name in widgets["checkboxes"].keys():
         # Label for checkbox (aligned with other parameter labels)
-        checkbox_label_surface = font.render(checkbox_name, True, (255, 255, 255))
-        clabel_pos = (labal_position[0], labal_position[1] + (element_height - checkbox_label_surface.get_height()) // 2)
-        widgets["checkbox_labels"][checkbox_name] = (checkbox_label_surface, clabel_pos) # Store as tuple (surface, pos)
+            checkbox_label_surface = font.render(checkbox_name, True, (255, 255, 255))
+            clabel_pos = (labal_position[0], labal_position[1] + (element_height - checkbox_label_surface.get_height()) // 2)
+            widgets["checkbox_labels"][checkbox_name] = (checkbox_label_surface, clabel_pos) # Store as tuple (surface, pos)
 
-        # Checkbox square (aligned with input elements like input_boxes/scrollbars)
-        checkbox_rect = pg.Rect(
-            labal_position[0] + labal_length + font_size_ref[1], # Align with other interactive elements
-            labal_position[1] + (element_height - font_size_ref[1]) // 2, # Vertically center the box part
-            font_size_ref[1], # Square checkbox using reference font height
-            font_size_ref[1]
-        )
-        widgets["checkbox_boxes"][checkbox_name] = checkbox_rect
-        labal_position[1] += element_height * 1.7 # Consistent spacing
+            # Checkbox square (aligned with input elements like input_boxes/scrollbars)
+            checkbox_rect = pg.Rect(
+                labal_position[0] + labal_length + font_size_ref[1], # Align with other interactive elements
+                labal_position[1] + (element_height - font_size_ref[1]) // 2, # Vertically center the box part
+                font_size_ref[1], # Square checkbox using reference font height
+                font_size_ref[1]
+            )
+            widgets["checkbox_boxes"][checkbox_name] = checkbox_rect
+            labal_position[1] += element_height * 1.7 # Consistent spacing
 
     # Buttons
     for button_name in buttons.keys():
@@ -305,11 +339,15 @@ def move_to_next_box(widgets):
 
 
 def get_param_name(widgets):
-    if not widgets["active_box"] or not widgets["input_boxes"]: # Check if active_box or input_boxes is None/empty
+    if not widgets.get("active_box") or not widgets.get("input_boxes"): # Check if active_box or input_boxes is None/empty
         return None
     try:
         index = widgets["input_boxes"].index(widgets["active_box"])
-        return list(widgets["parameters"].keys())[index]
+        # Map input box index to the corresponding non-scrollbar parameter name
+        non_scroll_params = [p_name for p_name in widgets["parameters"].keys() if p_name not in SCROLLBAR_PARAM_CONFIGS]
+        if index < len(non_scroll_params):
+            return non_scroll_params[index]
+        return None
     except ValueError: # active_box might not be in input_boxes if it was cleared
         return None
 
@@ -324,6 +362,15 @@ def draw_config_widgets(widgets):
     font = widgets["font"]
     parameters = widgets["parameters"]
     surface.fill((30, 30, 30))
+
+    # Draw panel toggle button in top-right
+    pr = widgets.get("panel_toggle_button_rect")
+    pl = widgets.get("panel_toggle_button_label_surface")
+    if pr and pl:
+        pg.draw.rect(surface, (255, 255, 255), pr, 2)
+        tx = pr.x + (pr.width - pl.get_width()) // 2
+        ty = pr.y + (pr.height - pl.get_height()) // 2
+        surface.blit(pl, (tx, ty))
 
     for label, pos in widgets["labels"]:
         surface.blit(label, pos)
@@ -369,6 +416,9 @@ def draw_config_widgets(widgets):
 
     # Updated checkbox drawing
     for checkbox_name in widgets["checkboxes"]: # Iterate by names (keys)
+        # Only draw if this checkbox is present on the current panel (i.e., its rect/label exist)
+        if checkbox_name not in widgets["checkbox_boxes"] or checkbox_name not in widgets["checkbox_labels"]:
+            continue
         checkbox_box = widgets["checkbox_boxes"][checkbox_name]
         # Retrieve the stored label surface and its position (which is a tuple: (surface, pos))
         label_surface, label_pos = widgets["checkbox_labels"][checkbox_name]
@@ -611,6 +661,19 @@ def handle_event(widgets, event, process_image_callback, calculate_pins_callback
 
     if event.type == pg.MOUSEBUTTONDOWN:
         adjusted_pos = (event.pos[0] - square_size, event.pos[1]) if event.pos[0] >= square_size else event.pos
+        # Toggle settings/config panel if top-right button clicked
+        pr = widgets.get("panel_toggle_button_rect")
+        if pr and pr.collidepoint(adjusted_pos):
+            widgets["active_panel"] = "settings" if widgets.get("active_panel", "config") == "config" else "config"
+            create_config_widgets(
+                widgets,
+                None,
+                None,
+                None,
+                widgets.get("checkboxes", {}),
+                widgets.get("checkbox_param_map", {})
+            )
+            return
         # Check scrollbar interactions first, as they are more specific than generic boxes
         for sb_data in widgets.get("scrollbars", []):
             # Use adjusted_pos for collision detection with UI elements on the information_surface

@@ -201,22 +201,20 @@ def process_image(image_to_process, checkboxes_state, image_square_size, radius_
     if checkboxes_state.get("denoise", False):
         image_array = cv2.bilateralFilter(image_array, 9, 75, 75)
     if checkboxes_state.get("Canny edge detection", False):
+        # Canny returns white edges on black background; invert so background stays white and edges are black
         image_array = cv2.Canny(image_array, canny_low, canny_high)
+        image_array = cv2.bitwise_not(image_array)
     if checkboxes_state.get("Adaptive thresholding", False):
         image_array = cv2.adaptiveThreshold(
             image_array, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY_INV, adaptive_block, adaptive_c
+            cv2.THRESH_BINARY, adaptive_block, adaptive_c
         )
     if checkboxes_state.get("Global Thresholding", False):
         _, image_array = cv2.threshold(image_array, 127, 255, cv2.THRESH_BINARY)
     if checkboxes_state.get("Line Thickness", False):
         image_array = cv2.dilate(image_array, edge_params["dilate_kernel"], iterations=1) # original had 3-1=2
 
-    if image_array.size > 0 and np.any(image_array): # Check if not empty and not all white
-      if image_array.ndim == 2 and image_array[0,0] == 0: # Check for inversion for B/W images
-          # This condition might need to be more robust, e.g., check average color
-          # For now, keeping it similar to original if first pixel is black
-          image_array = cv2.bitwise_not(image_array)
+        # Avoid arbitrary inversion; keep outputs in their canonical form
     
     # Convert the processed numpy array back to a PIL Image
     processed_pil_image = Image.fromarray(image_array)

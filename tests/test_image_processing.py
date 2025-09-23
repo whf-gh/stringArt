@@ -408,7 +408,8 @@ def test_process_image_remove_background(dummy_pil_image):
 
 
 def test_process_image_canny_edge(dummy_pil_image):
-    """Tests process_image with 'Canny edge detection' enabled."""
+    """Tests process_image with 'Canny edge detection' enabled.
+    Expectation: white background with black edges (inverted from OpenCV's default)."""
     image_to_process = dummy_pil_image.copy()
     checkboxes_state = {"Canny edge detection": True}
     image_square_size = 10
@@ -424,16 +425,16 @@ def test_process_image_canny_edge(dummy_pil_image):
     assert isinstance(output_processed_array, np.ndarray)
     assert output_processed_array.shape == (image_square_size, image_square_size)
 
-    # Canny output should be mostly black (0) with white (255) edges.
+    # Canny output should be mostly white (255) with black (0) edges after inversion.
     # Check if there are some edge pixels.
-    # Count non-zero (white) pixels. Should be > 0 for an image with edges.
+    # Count zero (black) pixels. Should be > 0 for an image with edges.
     # The dummy image has a square, so it has clear edges.
-    edge_pixels_count = np.sum(output_processed_array == 255)
+    edge_pixels_count = np.sum(output_processed_array == 0)
     assert edge_pixels_count > 0, "Canny edge should detect some edges in the dummy image."
 
-    # Also, the mean value of a Canny image is usually low (many black pixels).
-    assert np.mean(output_processed_array) < 100, \
-        "Mean of Canny edge output should be relatively low." # Arbitrary threshold, but much less than 255
+    # Also, the mean value should be high (mostly white background with thin black edges).
+    assert np.mean(output_processed_array) > 155, \
+        "Mean of Canny edge output should be relatively high due to white background."
 
     # init_array_to_use should be the masked original image here
     expected_masked_original_pil = apply_circle_mask(
