@@ -72,8 +72,8 @@ def handle_process_image(widgets):
     # And that image_original_pil holds the true original if needed for a full reset.
     
     # The process_image function in image_processing.py expects:
-    # image_to_process (PIL), checkboxes_state, image_square_size, radius_pixels, existing_init_array (optional)
-    # Let's assume image_to_process is the currently selected (and potentially resized/cropped) image
+    # image_to_process (PIL), checkboxes_state, image_square_size, radius_pixels, existing_init_array (optional),
+    # and now canny_low, canny_high, adaptive_block, adaptive_c
     
     # If image_original_pil exists, use it as the pristine source for processing
     source_pil_image = widgets.get("image_original_pil", widgets.get("image_pil"))
@@ -82,15 +82,40 @@ def handle_process_image(widgets):
         return
 
     # Convert original PIL to numpy array for 'existing_init_array' if needed
+    # This is the raw, unprocessed, but resized/cropped version of the selected image.
     existing_init_array_for_processing = np.array(source_pil_image.convert('L'))
+
+    # Retrieve image processing parameters from widgets["parameters"]
+    # ui.py scrollbar handling should ensure these are integers in widgets["parameters"]
+    # Text input parameters are converted to int in handle_submit_parameters or when they change.
+    # However, on first load or if not touched by scrollbar, they might be strings from initial_params.
+    # So, robustly get and convert to int.
+
+    def get_param_int(widgets_dict, param_name, default_value):
+        val = widgets_dict["parameters"].get(param_name, default_value)
+        try:
+            return int(val)
+        except ValueError:
+            print(f"Warning: Could not convert parameter {param_name} value '{val}' to int. Using default: {default_value}.")
+            return default_value
+
+    canny_low = get_param_int(widgets, "Canny Low", 100)
+    canny_high = get_param_int(widgets, "Canny High", 160)
+    adaptive_block = get_param_int(widgets, "Adaptive Block", 9)
+    adaptive_c = get_param_int(widgets, "Adaptive C", 2)
+    radius_pixels = get_param_int(widgets, "Radius in Pixels", widgets["image_square_size"] // 4)
 
 
     processed_pil_image, init_array_np, processed_array_np = image_processing.process_image(
         source_pil_image.copy(), # Pass a copy to avoid modifying the stored original PIL
         widgets["checkboxes"],
         widgets["image_square_size"],
-        widgets["parameters"].get("Radius in Pixels", widgets["image_square_size"] // 4),
-        existing_init_array=existing_init_array_for_processing 
+        radius_pixels, # Use the integer value retrieved above
+        existing_init_array=existing_init_array_for_processing,
+        canny_low=canny_low,
+        canny_high=canny_high,
+        adaptive_block=adaptive_block,
+        adaptive_c=adaptive_c
     )
 
     widgets["image_pil"] = processed_pil_image # Update with the newly processed PIL image
@@ -280,9 +305,23 @@ def _setup_config_ui(widgets):
         "Radius in milimeter": widgets["parameters"].get("Radius in milimeter", 190),
         "Minimum Pins Line Spans": widgets["parameters"].get("Minimum Pins Line Spans", widgets["parameters"].get("Number of Pins", 200) // 10),
         "Max Pin Usage": widgets["parameters"].get("Max Pin Usage", 15),
+        # Add new scrollbar-controlled parameters
+        "Canny Low": widgets["parameters"].get("Canny Low", 100),
+        "Canny High": widgets["parameters"].get("Canny High", 160),
+        "Adaptive Block": widgets["parameters"].get("Adaptive Block", 9),
+        "Adaptive C": widgets["parameters"].get("Adaptive C", 2),
     }
-    widgets["parameters"] = {k: str(v) for k,v in initial_params.items()} # UI expects strings for input boxes
-    widgets["defaults"] = initial_params # Store defaults for reset or validation
+    # Ensure all parameters, including new ones, are stringified for UI input boxes/initial display
+    # For scrollbars, ui.py directly uses the numeric value from initial_params for current_val setup.
+    # widgets["parameters"] is also used by ui.py to display text in input boxes (if any)
+    # and by scrollbars when they update their value back into widgets["parameters"].
+    # The important part is that initial_params passed to ui.create_config_widgets contains these new params numerically.
+    # And widgets["parameters"] for text display should be strings.
+    # widgets["defaults"] should store the numeric defaults.
+
+    current_str_params = {k: str(v) for k,v in initial_params.items()}
+    widgets["parameters"] = current_str_params # Store string versions for UI text inputs
+    widgets["defaults"] = initial_params # Store numeric defaults for reset, validation, and scrollbar init
 
     initial_checkboxes = {
         "Remove Background": widgets["checkboxes"].get("Remove Background", False),
@@ -303,12 +342,19 @@ def _setup_config_ui(widgets):
         initial_params["Number of Pins"]    # Use actual int value
     )
     
+    # Define mapping from checkboxes to parameters they control
+    checkbox_parameter_map = {
+        "Canny edge detection": ["Canny Low", "Canny High"],
+        "Adaptive thresholding": ["Adaptive Block", "Adaptive C"]
+    }
+
     ui.create_config_widgets(
         widgets,
         select_image_callback=handle_select_image,
         submit_parameters_callback=handle_submit_parameters,
-        initial_params=initial_params, # Pass the numeric initial params
-        initial_checkboxes=initial_checkboxes
+        initial_params_config=initial_params, # Changed keyword
+        initial_checkboxes_config=initial_checkboxes, # Changed keyword
+        checkbox_param_map=checkbox_parameter_map # Pass the new map
     )
 
 # --- Main Application Setup ---
