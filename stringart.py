@@ -47,6 +47,8 @@ def handle_select_image(widgets):
     """Callback for selecting an image."""
     pil_img, pil_img_original = image_processing.select_image(widgets["image_square_size"])
     if pil_img and pil_img_original:
+        # Reset algorithm state because a new image is chosen
+        string_art_generator.reset_line_algorithm_state(widgets)
         widgets["image_original_pil"] = pil_img_original # Store original PIL for re-processing
         widgets["image_pil"] = pil_img # Store current PIL for processing
         
@@ -121,6 +123,8 @@ def handle_process_image(widgets):
     widgets["image_pil"] = processed_pil_image # Update with the newly processed PIL image
     widgets["init_array"] = init_array_np     # Main array for string algorithm
     widgets["processed_array"] = processed_array_np # Secondary array (e.g. edges)
+    # Reset residuals/angle hist because the underlying pixel data changed meaningfully
+    string_art_generator.reset_line_algorithm_state(widgets)
 
     # Update Pygame surfaces for UI display
     widgets["image"] = pil_to_pygame_surface(widgets["image_pil"])
@@ -244,6 +248,7 @@ def handle_reset_to_config(widgets):
     # widgets["image"] = None 
     # widgets["init_array"] = None
     # widgets["processed_array"] = None
+    string_art_generator.reset_line_algorithm_state(widgets)
     handle_process_image(widgets)
     
     widgets["state"] = State.CONFIGURING
@@ -273,6 +278,7 @@ def handle_back_to_config(widgets):
         widgets["server"].stop()
         widgets["server"] = None
     widgets["state"] = State.CONFIGURING
+    string_art_generator.reset_line_algorithm_state(widgets)
     _setup_config_ui(widgets)
     handle_process_image(widgets)
 
@@ -310,6 +316,14 @@ def _setup_config_ui(widgets):
         "Canny High": widgets["parameters"].get("Canny High", 160),
         "Adaptive Block": widgets["parameters"].get("Adaptive Block", 9),
         "Adaptive C": widgets["parameters"].get("Adaptive C", 2),
+        # Add new algorithm parameters
+        "Progressive Lighten": widgets["parameters"].get("Progressive Lighten", True),
+        "Lighten Factor": widgets["parameters"].get("Lighten Factor", 0.4),
+        "Exploration Epsilon": widgets["parameters"].get("Exploration Epsilon", 0.05),
+        "Top K Explore": widgets["parameters"].get("Top K Explore", 5),
+        "Angle Bins": widgets["parameters"].get("Angle Bins", 24),
+        "Angle Diversity Weight": widgets["parameters"].get("Angle Diversity Weight", 0.8),
+        "Use Circular Span": widgets["parameters"].get("Use Circular Span", True)
     }
     # Ensure all parameters, including new ones, are stringified for UI input boxes/initial display
     # For scrollbars, ui.py directly uses the numeric value from initial_params for current_val setup.

@@ -55,24 +55,36 @@ def update_image_array(widgets, line): # widgets here is the main dictionary
     # It's part of the core string art algorithm's image update logic.
     init_array = widgets["init_array"]
     processed_array = widgets.get("processed_array") # Might be None
+    parameters = widgets.get("parameters", {})
+    progressive = bool(parameters.get("Progressive Lighten", False))
+    lighten_factor = parameters.get("Lighten Factor", 0.5)
+    try:
+        lighten_factor = float(lighten_factor)
+    except (TypeError, ValueError):
+        lighten_factor = 0.5
+    lighten_factor = max(0.0, min(1.0, lighten_factor))
 
     for x, y in line:
         if 0 <= y < init_array.shape[0] and 0 <= x < init_array.shape[1]: # Boundary check
             if init_array[y, x] != 255: # If not already white
-                if processed_array is not None:
-                    if processed_array[y, x] == 0 and init_array[y, x] < 200:
-                        init_array[y, x] = (
-                            init_array[y, x]
-                            + (255 - init_array[y, x]) // 2
-                        )
+                if progressive:
+                    # Unified progressive lightening regardless of processed_array presence
+                    init_array[y, x] = int(init_array[y, x] + lighten_factor * (255 - init_array[y, x]))
+                else:
+                    if processed_array is not None:
+                        if processed_array[y, x] == 0 and init_array[y, x] < 200:
+                            init_array[y, x] = (
+                                init_array[y, x]
+                                + (255 - init_array[y, x]) // 2
+                            )
+                        else:
+                            init_array[y, x] = 255
+                    elif init_array[y, x] < 200:
+                        # Original logic: widgets['init_array'][y, x] = min(int(widgets['init_array'][y, x] * widgets['decay']), 255)
+                        # Using a simpler update for now if decay is not passed:
+                        init_array[y, x] = min(int(init_array[y, x] + 100), 255)
                     else:
                         init_array[y, x] = 255
-                elif init_array[y, x] < 200:
-                    # Original logic: widgets['init_array'][y, x] = min(int(widgets['init_array'][y, x] * widgets['decay']), 255)
-                    # Using a simpler update for now if decay is not passed:
-                    init_array[y, x] = min(int(init_array[y, x] + 100), 255)
-                else:
-                    init_array[y, x] = 255
     widgets["init_array"] = init_array # Ensure the main widgets dict is updated
 
 
